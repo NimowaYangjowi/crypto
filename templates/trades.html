@@ -316,7 +316,11 @@
         .status-badge.pending { background: #FEF3C7; color: #92400E; }
         .status-badge.closed { background: var(--sand); color: var(--charcoal); }
         .status-badge.tp3_hit { background: #D1FAE5; color: #065F46; }
+        .status-badge.tp4_hit { background: #A7F3D0; color: #064E3B; }
         .status-badge.sl_hit { background: #FEE2E2; color: #991B1B; }
+        .status-badge.sl_after_tp1 { background: #FEF3C7; color: #92400E; }
+        .status-badge.sl_after_tp2 { background: #D1FAE5; color: #065F46; }
+        .status-badge.sl_after_tp3 { background: #A7F3D0; color: #064E3B; }
         .status-badge.timeout { background: #F3F4F6; color: #6B7280; }
         .status-badge.cancelled { background: #F3F4F6; color: #6B7280; }
         .status-badge.error { background: #FEE2E2; color: #991B1B; }
@@ -614,7 +618,11 @@
     function resultLabel(result) {
         const map = {
             'tp3_hit': 'TP3 HIT',
+            'tp4_hit': 'TP4 HIT',
             'sl_hit': 'SL HIT',
+            'sl_after_tp1': 'SL (TP1+)',
+            'sl_after_tp2': 'SL (TP2+)',
+            'sl_after_tp3': 'SL (TP3+)',
             'external': 'External',
             'timeout': 'Timeout',
             'cancelled': 'Cancelled',

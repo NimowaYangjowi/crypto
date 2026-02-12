@@ -5,7 +5,8 @@ Standalone Binance Trading Bot
 - Parses trading signals with regex
 - Executes trades on Binance (Spot LONG / Futures SHORT)
 - Reports results via Telegram Bot API
-- Monitors positions: TP1 hit → move SL to breakeven
+- Monitors positions with 3-stage trailing stop:
+  TP1 → SL to breakeven, TP2 → SL to TP1, TP3 → SL to TP2 (target TP4)
 """
 
 import asyncio
@@ -98,7 +99,8 @@ DB_PATH = Path(__file__).parent / "trades.db"
 
 TRADE_COLUMNS = {
     "status", "filled_price", "qty", "exit_price", "result",
-    "pnl_pct", "pnl_usdt", "tp1_hit", "sl_moved", "filled_at", "closed_at",
+    "pnl_pct", "pnl_usdt", "tp1_hit", "tp2_hit", "tp3_hit", "sl_moved",
+    "filled_at", "closed_at",
 }
 
 
@@ -117,12 +119,15 @@ def init_db():
                 tp1 REAL,
                 tp2 REAL,
                 tp3 REAL,
+                tp4 REAL,
                 sl REAL,
                 exit_price REAL,
                 result TEXT,
                 pnl_pct REAL,
                 pnl_usdt REAL,
                 tp1_hit INTEGER DEFAULT 0,
+                tp2_hit INTEGER DEFAULT 0,
+                tp3_hit INTEGER DEFAULT 0,
                 sl_moved INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 filled_at TEXT,
@@ -135,14 +140,24 @@ def init_db():
                 value TEXT NOT NULL
             )
         """)
+        # Migrate: add new columns if missing
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(trades)").fetchall()}
+        for col, typ, default in [
+            ("tp4", "REAL", None),
+            ("tp2_hit", "INTEGER", "0"),
+            ("tp3_hit", "INTEGER", "0"),
+        ]:
+            if col not in existing:
+                dflt = f" DEFAULT {default}" if default is not None else ""
+                conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}{dflt}")
 
 
-def db_insert_trade(ticker, side, entry_price, qty, amount_usdt, tp1, tp2, tp3, sl):
+def db_insert_trade(ticker, side, entry_price, qty, amount_usdt, tp1, tp2, tp3, tp4, sl):
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.execute(
-            """INSERT INTO trades (ticker, side, status, entry_price, qty, amount_usdt, tp1, tp2, tp3, sl)
-               VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)""",
-            (ticker, side, entry_price, qty, amount_usdt, tp1, tp2, tp3, sl),
+            """INSERT INTO trades (ticker, side, status, entry_price, qty, amount_usdt, tp1, tp2, tp3, tp4, sl)
+               VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (ticker, side, entry_price, qty, amount_usdt, tp1, tp2, tp3, tp4, sl),
         )
         return cur.lastrowid
 
@@ -277,7 +292,8 @@ async def execute_spot_long(signal, bot_client):
     ticker = signal["ticker"]
     symbol = f"{ticker}/USDT"
     entry = signal["entry"]
-    tp1, tp3, sl = signal["tp1"], signal["tp3"], signal["sl"]
+    tp1, tp2, tp3, tp4 = signal["tp1"], signal["tp2"], signal["tp3"], signal["tp4"]
+    sl = signal["sl"]
     trade_id = None
 
     try:
@@ -287,7 +303,7 @@ async def execute_spot_long(signal, bot_client):
 
         trade_id = db_insert_trade(
             ticker, "LONG", entry, qty, TRADE_AMOUNT,
-            signal["tp1"], signal["tp2"], signal["tp3"], sl,
+            tp1, tp2, tp3, tp4, sl,
         )
 
         # Place limit buy at entry
@@ -297,7 +313,8 @@ async def execute_spot_long(signal, bot_client):
 
         await notify(bot_client, (
             f"✅ {ticker} LONG 주문 접수\n"
-            f"진입: {entry} | SL: {sl} | TP3: {tp3}\n"
+            f"진입: {entry} | SL: {sl}\n"
+            f"TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | TP4: {tp4}\n"
             f"수량: {qty} | 투입: ~{TRADE_AMOUNT} USDT"
         ))
 
@@ -331,22 +348,25 @@ async def execute_spot_long(signal, bot_client):
                 return
             await asyncio.sleep(5)
 
-        # Place SL and TP orders
+        # Place SL and TP orders (TP at tp4 = final target)
         sl_order = exchange.create_order(symbol, "stop_loss_limit", "sell", filled_qty, sl, {"stopPrice": sl})
         sl_order_id = sl_order["id"]
-        tp_order = exchange.create_limit_sell_order(symbol, filled_qty, tp3)
+        tp_order = exchange.create_limit_sell_order(symbol, filled_qty, tp4)
         tp_order_id = tp_order["id"]
-        logger.info(f"[SPOT LONG] {symbol} SL: {sl_order_id} @ {sl}, TP3: {tp_order_id} @ {tp3}")
+        logger.info(f"[SPOT LONG] {symbol} SL: {sl_order_id} @ {sl}, TP4: {tp_order_id} @ {tp4}")
 
-        # Monitor: TP1 → move SL to breakeven
-        sl_moved = False
+        # Monitor: 3-stage trailing stop
+        trail_stage = 0  # 0=initial, 1=TP1 hit, 2=TP2 hit, 3=TP3 hit
+        stage_labels = {0: "sl_hit", 1: "sl_after_tp1", 2: "sl_after_tp2", 3: "sl_after_tp3"}
+
         while True:
             try:
                 ticker_data = exchange.fetch_ticker(symbol)
                 price = ticker_data["last"]
 
-                if not sl_moved and price >= tp1:
-                    logger.info(f"[SPOT LONG] {symbol} TP1 reached ({price}). Moving SL to {avg_price}")
+                # Stage 1: TP1 → SL to breakeven (entry price)
+                if trail_stage == 0 and price >= tp1:
+                    logger.info(f"[SPOT LONG] {symbol} TP1 reached ({price}). SL → {avg_price}")
                     try:
                         exchange.cancel_order(sl_order_id, symbol)
                         sl_order = exchange.create_order(
@@ -354,27 +374,59 @@ async def execute_spot_long(signal, bot_client):
                             {"stopPrice": avg_price}
                         )
                         sl_order_id = sl_order["id"]
-                        sl_moved = True
+                        trail_stage = 1
                         db_update_trade(trade_id, tp1_hit=1, sl_moved=1)
-                        await notify(bot_client, f"🔄 {ticker} TP1 도달! SL → 진입점({avg_price}) 이동")
+                        await notify(bot_client, f"🔄 {ticker} TP1 도달! SL → 진입점({avg_price})")
                     except Exception as e:
                         logger.error(f"Failed to move SL: {e}")
 
-                # Check TP3
+                # Stage 2: TP2 → SL to TP1
+                elif trail_stage == 1 and price >= tp2:
+                    logger.info(f"[SPOT LONG] {symbol} TP2 reached ({price}). SL → TP1({tp1})")
+                    try:
+                        exchange.cancel_order(sl_order_id, symbol)
+                        sl_order = exchange.create_order(
+                            symbol, "stop_loss_limit", "sell", filled_qty, tp1,
+                            {"stopPrice": tp1}
+                        )
+                        sl_order_id = sl_order["id"]
+                        trail_stage = 2
+                        db_update_trade(trade_id, tp2_hit=1)
+                        await notify(bot_client, f"🔄 {ticker} TP2 도달! SL → TP1({tp1})")
+                    except Exception as e:
+                        logger.error(f"Failed to move SL: {e}")
+
+                # Stage 3: TP3 → SL to TP2, ride to TP4
+                elif trail_stage == 2 and price >= tp3:
+                    logger.info(f"[SPOT LONG] {symbol} TP3 reached ({price}). SL → TP2({tp2})")
+                    try:
+                        exchange.cancel_order(sl_order_id, symbol)
+                        sl_order = exchange.create_order(
+                            symbol, "stop_loss_limit", "sell", filled_qty, tp2,
+                            {"stopPrice": tp2}
+                        )
+                        sl_order_id = sl_order["id"]
+                        trail_stage = 3
+                        db_update_trade(trade_id, tp3_hit=1)
+                        await notify(bot_client, f"🔄 {ticker} TP3 도달! SL → TP2({tp2}) | TP4({tp4}) 노림")
+                    except Exception as e:
+                        logger.error(f"Failed to move SL: {e}")
+
+                # Check TP4 (final target)
                 tp_status = exchange.fetch_order(tp_order_id, symbol)
                 if tp_status["status"] == "closed":
                     try:
                         exchange.cancel_order(sl_order_id, symbol)
                     except Exception:
                         pass
-                    pnl = round((tp3 - avg_price) / avg_price * 100, 2)
-                    pnl_usdt = round((tp3 - avg_price) * filled_qty, 2)
-                    record_pnl((tp3 - avg_price) * filled_qty)
-                    db_update_trade(trade_id, status="closed", result="tp3_hit",
-                                    exit_price=tp3, pnl_pct=pnl, pnl_usdt=pnl_usdt,
+                    pnl = round((tp4 - avg_price) / avg_price * 100, 2)
+                    pnl_usdt = round((tp4 - avg_price) * filled_qty, 2)
+                    record_pnl((tp4 - avg_price) * filled_qty)
+                    db_update_trade(trade_id, status="closed", result="tp4_hit",
+                                    exit_price=tp4, pnl_pct=pnl, pnl_usdt=pnl_usdt,
                                     closed_at=datetime.now().isoformat())
-                    logger.info(f"[SPOT LONG] {symbol} TP3 HIT! PnL: {pnl}%")
-                    await notify(bot_client, f"📊 {ticker} LONG 거래 완료\n결과: TP3 도달\n수익률: {pnl}%")
+                    logger.info(f"[SPOT LONG] {symbol} TP4 HIT! PnL: {pnl}%")
+                    await notify(bot_client, f"🎯 {ticker} LONG TP4 도달!\n수익률: {pnl}% | {pnl_usdt} USDT")
                     return
 
                 # Check SL
@@ -388,11 +440,12 @@ async def execute_spot_long(signal, bot_client):
                     pnl = round((sl_fill - avg_price) / avg_price * 100, 2)
                     pnl_usdt = round((sl_fill - avg_price) * filled_qty, 2)
                     record_pnl((sl_fill - avg_price) * filled_qty)
-                    db_update_trade(trade_id, status="closed", result="sl_hit",
+                    result = stage_labels[trail_stage]
+                    db_update_trade(trade_id, status="closed", result=result,
                                     exit_price=sl_fill, pnl_pct=pnl, pnl_usdt=pnl_usdt,
                                     closed_at=datetime.now().isoformat())
-                    logger.info(f"[SPOT LONG] {symbol} SL HIT @ {sl_fill}. PnL: {pnl}%")
-                    await notify(bot_client, f"📊 {ticker} LONG 거래 완료\n결과: SL 도달 @ {sl_fill}\n수익률: {pnl}%")
+                    logger.info(f"[SPOT LONG] {symbol} SL HIT @ {sl_fill} (stage {trail_stage}). PnL: {pnl}%")
+                    await notify(bot_client, f"📊 {ticker} LONG SL 도달 @ {sl_fill}\n단계: {trail_stage} | 수익률: {pnl}% | {pnl_usdt} USDT")
                     return
 
                 # Check spot balance (position closed externally?)
@@ -428,7 +481,8 @@ async def execute_futures_short(signal, bot_client):
     ticker = signal["ticker"]
     symbol = f"{ticker}/USDT"
     entry = signal["entry"]
-    tp1, tp3, sl = signal["tp1"], signal["tp3"], signal["sl"]
+    tp1, tp2, tp3, tp4 = signal["tp1"], signal["tp2"], signal["tp3"], signal["tp4"]
+    sl = signal["sl"]
     trade_id = None
 
     try:
@@ -438,7 +492,7 @@ async def execute_futures_short(signal, bot_client):
 
         trade_id = db_insert_trade(
             ticker, "SHORT", entry, qty, TRADE_AMOUNT,
-            signal["tp1"], signal["tp2"], signal["tp3"], sl,
+            tp1, tp2, tp3, tp4, sl,
         )
 
         # Set 1x leverage + isolated margin
@@ -455,7 +509,8 @@ async def execute_futures_short(signal, bot_client):
 
         await notify(bot_client, (
             f"✅ {ticker} SHORT 주문 접수\n"
-            f"진입: {entry} | SL: {sl} | TP3: {tp3}\n"
+            f"진입: {entry} | SL: {sl}\n"
+            f"TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | TP4: {tp4}\n"
             f"수량: {qty} | 투입: ~{TRADE_AMOUNT} USDT | 1x"
         ))
 
@@ -489,7 +544,7 @@ async def execute_futures_short(signal, bot_client):
                 return
             await asyncio.sleep(5)
 
-        # Place SL (STOP_MARKET) and TP (TAKE_PROFIT_MARKET)
+        # Place SL (STOP_MARKET) and TP (TAKE_PROFIT_MARKET at tp4 = final target)
         sl_order = exchange.create_order(
             symbol, "stop_market", "buy", filled_qty, None,
             {"stopPrice": sl, "reduceOnly": True}
@@ -497,20 +552,23 @@ async def execute_futures_short(signal, bot_client):
         sl_order_id = sl_order["id"]
         tp_order = exchange.create_order(
             symbol, "take_profit_market", "buy", filled_qty, None,
-            {"stopPrice": tp3, "reduceOnly": True}
+            {"stopPrice": tp4, "reduceOnly": True}
         )
         tp_order_id = tp_order["id"]
-        logger.info(f"[FUTURES SHORT] {symbol} SL: {sl_order_id} @ {sl}, TP3: {tp_order_id} @ {tp3}")
+        logger.info(f"[FUTURES SHORT] {symbol} SL: {sl_order_id} @ {sl}, TP4: {tp_order_id} @ {tp4}")
 
-        # Monitor: TP1 → move SL to breakeven
-        sl_moved = False
+        # Monitor: 3-stage trailing stop
+        trail_stage = 0  # 0=initial, 1=TP1 hit, 2=TP2 hit, 3=TP3 hit
+        stage_labels = {0: "sl_hit", 1: "sl_after_tp1", 2: "sl_after_tp2", 3: "sl_after_tp3"}
+
         while True:
             try:
                 ticker_data = exchange.fetch_ticker(symbol)
                 price = ticker_data["last"]
 
-                if not sl_moved and price <= tp1:
-                    logger.info(f"[FUTURES SHORT] {symbol} TP1 reached ({price}). Moving SL to {avg_price}")
+                # Stage 1: TP1 → SL to breakeven (SHORT: price drops to tp1)
+                if trail_stage == 0 and price <= tp1:
+                    logger.info(f"[FUTURES SHORT] {symbol} TP1 reached ({price}). SL → {avg_price}")
                     try:
                         exchange.cancel_order(sl_order_id, symbol)
                         sl_order = exchange.create_order(
@@ -518,27 +576,59 @@ async def execute_futures_short(signal, bot_client):
                             {"stopPrice": avg_price, "reduceOnly": True}
                         )
                         sl_order_id = sl_order["id"]
-                        sl_moved = True
+                        trail_stage = 1
                         db_update_trade(trade_id, tp1_hit=1, sl_moved=1)
-                        await notify(bot_client, f"🔄 {ticker} TP1 도달! SL → 진입점({avg_price}) 이동")
+                        await notify(bot_client, f"🔄 {ticker} TP1 도달! SL → 진입점({avg_price})")
                     except Exception as e:
                         logger.error(f"Failed to move SL: {e}")
 
-                # Check TP3
+                # Stage 2: TP2 → SL to TP1
+                elif trail_stage == 1 and price <= tp2:
+                    logger.info(f"[FUTURES SHORT] {symbol} TP2 reached ({price}). SL → TP1({tp1})")
+                    try:
+                        exchange.cancel_order(sl_order_id, symbol)
+                        sl_order = exchange.create_order(
+                            symbol, "stop_market", "buy", filled_qty, None,
+                            {"stopPrice": tp1, "reduceOnly": True}
+                        )
+                        sl_order_id = sl_order["id"]
+                        trail_stage = 2
+                        db_update_trade(trade_id, tp2_hit=1)
+                        await notify(bot_client, f"🔄 {ticker} TP2 도달! SL → TP1({tp1})")
+                    except Exception as e:
+                        logger.error(f"Failed to move SL: {e}")
+
+                # Stage 3: TP3 → SL to TP2, ride to TP4
+                elif trail_stage == 2 and price <= tp3:
+                    logger.info(f"[FUTURES SHORT] {symbol} TP3 reached ({price}). SL → TP2({tp2})")
+                    try:
+                        exchange.cancel_order(sl_order_id, symbol)
+                        sl_order = exchange.create_order(
+                            symbol, "stop_market", "buy", filled_qty, None,
+                            {"stopPrice": tp2, "reduceOnly": True}
+                        )
+                        sl_order_id = sl_order["id"]
+                        trail_stage = 3
+                        db_update_trade(trade_id, tp3_hit=1)
+                        await notify(bot_client, f"🔄 {ticker} TP3 도달! SL → TP2({tp2}) | TP4({tp4}) 노림")
+                    except Exception as e:
+                        logger.error(f"Failed to move SL: {e}")
+
+                # Check TP4 (final target)
                 tp_status = exchange.fetch_order(tp_order_id, symbol)
                 if tp_status["status"] == "closed":
                     try:
                         exchange.cancel_order(sl_order_id, symbol)
                     except Exception:
                         pass
-                    pnl = round((avg_price - tp3) / avg_price * 100, 2)
-                    pnl_usdt = round((avg_price - tp3) * filled_qty, 2)
-                    record_pnl((avg_price - tp3) * filled_qty)
-                    db_update_trade(trade_id, status="closed", result="tp3_hit",
-                                    exit_price=tp3, pnl_pct=pnl, pnl_usdt=pnl_usdt,
+                    pnl = round((avg_price - tp4) / avg_price * 100, 2)
+                    pnl_usdt = round((avg_price - tp4) * filled_qty, 2)
+                    record_pnl((avg_price - tp4) * filled_qty)
+                    db_update_trade(trade_id, status="closed", result="tp4_hit",
+                                    exit_price=tp4, pnl_pct=pnl, pnl_usdt=pnl_usdt,
                                     closed_at=datetime.now().isoformat())
-                    logger.info(f"[FUTURES SHORT] {symbol} TP3 HIT! PnL: {pnl}%")
-                    await notify(bot_client, f"📊 {ticker} SHORT 거래 완료\n결과: TP3 도달\n수익률: {pnl}%")
+                    logger.info(f"[FUTURES SHORT] {symbol} TP4 HIT! PnL: {pnl}%")
+                    await notify(bot_client, f"🎯 {ticker} SHORT TP4 도달!\n수익률: {pnl}% | {pnl_usdt} USDT")
                     return
 
                 # Check SL
@@ -552,11 +642,12 @@ async def execute_futures_short(signal, bot_client):
                     pnl = round((avg_price - sl_fill) / avg_price * 100, 2)
                     pnl_usdt = round((avg_price - sl_fill) * filled_qty, 2)
                     record_pnl((avg_price - sl_fill) * filled_qty)
-                    db_update_trade(trade_id, status="closed", result="sl_hit",
+                    result = stage_labels[trail_stage]
+                    db_update_trade(trade_id, status="closed", result=result,
                                     exit_price=sl_fill, pnl_pct=pnl, pnl_usdt=pnl_usdt,
                                     closed_at=datetime.now().isoformat())
-                    logger.info(f"[FUTURES SHORT] {symbol} SL HIT @ {sl_fill}. PnL: {pnl}%")
-                    await notify(bot_client, f"📊 {ticker} SHORT 거래 완료\n결과: SL 도달 @ {sl_fill}\n수익률: {pnl}%")
+                    logger.info(f"[FUTURES SHORT] {symbol} SL HIT @ {sl_fill} (stage {trail_stage}). PnL: {pnl}%")
+                    await notify(bot_client, f"📊 {ticker} SHORT SL 도달 @ {sl_fill}\n단계: {trail_stage} | 수익률: {pnl}% | {pnl_usdt} USDT")
                     return
 
                 # Check position exists
