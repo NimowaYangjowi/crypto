@@ -218,3 +218,4 @@ Made with [Linuxmaster14](https://github.com/Linuxmaster14)
 ## Disclaimer
 
 This tool is for educational and personal use. Please respect Telegram's Terms of Service and applicable laws regarding message forwarding and privacy.
+# crypto
