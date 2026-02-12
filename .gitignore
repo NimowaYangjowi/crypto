@@ -139,6 +139,10 @@ dmypy.json
 *.swo
 *~
 
+# macOS app bundle
+*.app/
+build_app.applescript
+
 # macOS
 .DS_Store
 .AppleDouble

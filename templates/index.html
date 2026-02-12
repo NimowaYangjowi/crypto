@@ -1,0 +1,1647 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Forwarder</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --cream: #F5F0E8;
+            --terracotta: #C65D3B;
+            --terracotta-light: #D4836A;
+            --olive: #3D4A3D;
+            --olive-light: #5A6B5A;
+            --sand: #E8DFD0;
+            --charcoal: #2E2B28;
+            --white: #FFFFFF;
+            --success: #4A7C4A;
+            --error: #C65D3B;
+            --text-primary: #000000;
+            --text-secondary: rgba(0, 0, 0, 0.6);
+            --text-tertiary: rgba(0, 0, 0, 0.38);
+            --divider: rgba(0, 0, 0, 0.15);
+            --divider-light: rgba(0, 0, 0, 0.08);
+            --shadow-sm: 0 0 12px rgba(0, 0, 0, 0.06);
+            --font-heading: 'Fraunces', Georgia, serif;
+            --font-body: -apple-system, BlinkMacSystemFont, 'Pretendard Variable', Pretendard,
+                         'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--font-body);
+            background-color: var(--cream);
+            color: var(--text-primary);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── Header ──────────────────────────────────── */
+        .header {
+            background: var(--olive);
+            color: var(--white);
+            padding: 0 32px;
+            height: 64px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            font-weight: 500;
+            letter-spacing: -0.02em;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 13px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            background: #4ADE80;
+            box-shadow: 0 0 8px rgba(74, 222, 128, 0.5);
+            margin-right: 6px;
+        }
+
+        .status-dot.disconnected {
+            background: var(--error);
+            box-shadow: 0 0 8px rgba(198, 93, 59, 0.5);
+        }
+
+        .btn-header {
+            background: transparent;
+            color: var(--white);
+            border: 1px solid rgba(255,255,255,0.3);
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            cursor: pointer;
+            font-family: var(--font-body);
+            transition: all 0.15s ease;
+        }
+
+        .btn-header:hover {
+            background: rgba(255,255,255,0.12);
+            border-color: rgba(255,255,255,0.5);
+        }
+
+        .btn-header.confirming {
+            border-color: var(--terracotta);
+            background: var(--terracotta);
+        }
+
+        /* ── Tab Navigation ──────────────────────────── */
+        .tab-nav {
+            background: var(--charcoal);
+            display: flex;
+            padding: 0 32px;
+        }
+
+        .tab-btn {
+            background: transparent;
+            color: rgba(255,255,255,0.5);
+            border: none;
+            padding: 12px 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            font-family: var(--font-body);
+            transition: all 0.15s ease;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab-btn:hover {
+            color: rgba(255,255,255,0.8);
+        }
+
+        .tab-btn.active {
+            color: var(--white);
+            border-bottom-color: var(--terracotta);
+        }
+
+        /* ── Main ────────────────────────────────────── */
+        .main {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 32px 24px 64px;
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* ── Stats Grid ──────────────────────────────── */
+        .stats-grid {
+            display: grid;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .stats-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+        .stats-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+        .stats-grid.cols-6 { grid-template-columns: repeat(6, 1fr); }
+
+        .stat-card {
+            background: var(--white);
+            padding: 20px 24px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .stat-value {
+            font-family: var(--font-heading);
+            font-size: 28px;
+            font-weight: 500;
+            color: var(--charcoal);
+            line-height: 1.1;
+        }
+
+        .stat-value.positive { color: var(--success); }
+        .stat-value.negative { color: var(--error); }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 600;
+        }
+
+        /* ── Section ─────────────────────────────────── */
+        .section { margin-bottom: 32px; }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 12px;
+        }
+
+        .section-title {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            font-weight: 500;
+            color: var(--charcoal);
+            letter-spacing: -0.01em;
+        }
+
+        .section-subtitle {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            letter-spacing: 0.02em;
+        }
+
+        /* ── Rule Cards (Forwarder) ──────────────────── */
+        .rule-card {
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: stretch;
+        }
+
+        .rule-source {
+            flex: 1;
+            padding: 20px 24px;
+            border-right: 1px solid var(--divider-light);
+        }
+
+        .rule-arrow-col {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 56px;
+            flex-shrink: 0;
+        }
+
+        .rule-arrow {
+            width: 32px;
+            height: 32px;
+            background: var(--terracotta);
+            color: var(--white);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .rule-targets { flex: 1; padding: 20px 24px; }
+
+        .rule-target-item { padding: 4px 0; }
+        .rule-target-item + .rule-target-item {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--divider-light);
+        }
+
+        .entity-name { font-weight: 500; font-size: 15px; color: var(--charcoal); }
+        .entity-username { font-size: 12px; color: var(--text-secondary); }
+
+        .source-tag, .target-tag {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 2px 8px;
+            margin-bottom: 6px;
+        }
+
+        .source-tag { background: var(--sand); color: var(--charcoal); }
+        .target-tag { background: var(--terracotta); color: var(--white); }
+
+        /* ── Message List (Forwarder) ────────────────── */
+        .message-list {
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            max-height: 480px;
+            overflow-y: auto;
+        }
+
+        .message-list::-webkit-scrollbar { width: 4px; }
+        .message-list::-webkit-scrollbar-thumb { background: var(--sand); }
+
+        .message-item {
+            padding: 12px 24px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            border-bottom: 1px solid var(--divider-light);
+            font-size: 14px;
+        }
+
+        .message-item:hover { background: rgba(0, 0, 0, 0.02); }
+        .message-item:last-child { border-bottom: none; }
+
+        .msg-time {
+            color: var(--text-tertiary);
+            font-size: 12px;
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
+            min-width: 56px;
+        }
+
+        .msg-status { flex-shrink: 0; font-size: 14px; width: 18px; text-align: center; }
+        .msg-status.success { color: var(--success); }
+        .msg-status.error { color: var(--error); }
+
+        .msg-body { flex: 1; min-width: 0; }
+
+        .msg-route { font-weight: 500; font-size: 13px; color: var(--charcoal); margin-bottom: 2px; }
+        .msg-route .arrow { color: var(--terracotta); margin: 0 4px; }
+
+        .msg-preview {
+            color: var(--text-secondary);
+            font-size: 13px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* ── Active Positions (Trading) ──────────────── */
+        .active-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 10px;
+        }
+
+        .active-card {
+            background: var(--white);
+            padding: 16px 20px;
+            box-shadow: var(--shadow-sm);
+            border-left: 4px solid var(--olive);
+        }
+
+        .active-card.long { border-left-color: var(--success); }
+        .active-card.short { border-left-color: var(--terracotta); }
+
+        .active-pair { font-weight: 600; font-size: 15px; color: var(--charcoal); }
+
+        .active-side {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 2px 8px;
+            margin-left: 6px;
+            color: var(--white);
+        }
+
+        .active-side.long { background: var(--success); }
+        .active-side.short { background: var(--terracotta); }
+
+        .active-meta { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+
+        /* ── Filter Tabs (Trading) ───────────────────── */
+        .filter-tabs { display: flex; gap: 4px; }
+
+        .filter-tab {
+            background: transparent;
+            border: 1px solid var(--divider);
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            font-family: var(--font-body);
+            color: var(--text-secondary);
+            transition: all 0.15s ease;
+        }
+
+        .filter-tab:hover { border-color: var(--olive-light); color: var(--text-primary); }
+        .filter-tab.active { background: var(--olive); border-color: var(--olive); color: var(--white); }
+
+        /* ── Trade Table (Trading) ───────────────────── */
+        .trade-table-wrap {
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            overflow-x: auto;
+        }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+        thead th {
+            text-align: left;
+            padding: 12px 16px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            border-bottom: 2px solid var(--divider-light);
+            white-space: nowrap;
+        }
+
+        tbody td {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--divider-light);
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+
+        tbody tr:hover { background: rgba(0, 0, 0, 0.02); }
+        tbody tr:last-child td { border-bottom: none; }
+
+        .side-tag {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 2px 8px;
+            color: var(--white);
+        }
+
+        .side-tag.long { background: var(--success); }
+        .side-tag.short { background: var(--terracotta); }
+
+        .status-badge-trade {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 2px 8px;
+        }
+
+        .status-badge-trade.open { background: #DBEAFE; color: #1E40AF; }
+        .status-badge-trade.pending { background: #FEF3C7; color: #92400E; }
+        .status-badge-trade.closed { background: var(--sand); color: var(--charcoal); }
+        .status-badge-trade.tp3_hit { background: #D1FAE5; color: #065F46; }
+        .status-badge-trade.sl_hit { background: #FEE2E2; color: #991B1B; }
+        .status-badge-trade.timeout { background: #F3F4F6; color: #6B7280; }
+        .status-badge-trade.cancelled { background: #F3F4F6; color: #6B7280; }
+        .status-badge-trade.error { background: #FEE2E2; color: #991B1B; }
+        .status-badge-trade.external { background: #E0E7FF; color: #3730A3; }
+
+        .pnl-positive { color: var(--success); font-weight: 600; }
+        .pnl-negative { color: var(--error); font-weight: 600; }
+        .pnl-zero { color: var(--text-tertiary); }
+
+        .tp1-check { color: var(--success); font-weight: 600; }
+
+        /* ── Settings Panel ──────────────────────────── */
+        .settings-panel {
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .setting-field label {
+            display: block;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .setting-field input {
+            width: 100%;
+            padding: 10px 12px;
+            font-size: 14px;
+            font-family: var(--font-body);
+            border: 1px solid var(--divider);
+            background: var(--cream);
+            color: var(--charcoal);
+            transition: border-color 0.15s ease;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .setting-field input:focus { outline: none; border-color: var(--olive); }
+
+        .setting-field .hint {
+            font-size: 11px;
+            color: var(--text-tertiary);
+            margin-top: 4px;
+        }
+
+        .settings-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--divider-light);
+        }
+
+        .btn-save {
+            background: var(--olive);
+            color: var(--white);
+            border: none;
+            padding: 10px 24px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            font-family: var(--font-body);
+            transition: background 0.15s ease;
+        }
+
+        .btn-save:hover { background: var(--olive-light); }
+        .btn-save:disabled { opacity: 0.5; cursor: default; }
+
+        .save-msg { font-size: 13px; font-weight: 500; }
+        .save-msg.ok { color: var(--success); }
+        .save-msg.err { color: var(--error); }
+
+        /* ── Channel Management ─────────────────────── */
+        .channel-card {
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            padding: 16px 20px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+        }
+
+        .channel-card.disabled { opacity: 0.5; }
+
+        .channel-info { flex: 1; min-width: 0; }
+
+        .channel-name {
+            font-weight: 600;
+            font-size: 15px;
+            color: var(--charcoal);
+        }
+
+        .channel-id {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .channel-template {
+            font-size: 12px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            color: var(--text-secondary);
+            background: var(--cream);
+            padding: 6px 10px;
+            margin-top: 8px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            line-height: 1.5;
+        }
+
+        .channel-side-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 2px 8px;
+            color: var(--white);
+            margin-left: 8px;
+        }
+
+        .channel-side-badge.long { background: var(--success); }
+        .channel-side-badge.short { background: var(--terracotta); }
+
+        .channel-actions {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .btn-icon {
+            background: transparent;
+            border: 1px solid var(--divider);
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+            color: var(--text-secondary);
+        }
+
+        .btn-icon:hover { border-color: var(--olive); color: var(--charcoal); }
+        .btn-icon.danger:hover { border-color: var(--error); color: var(--error); }
+
+        .channel-form {
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+
+        .channel-form .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .channel-form .form-row.full {
+            grid-template-columns: 1fr;
+        }
+
+        .channel-form label {
+            display: block;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .channel-form input,
+        .channel-form select {
+            width: 100%;
+            padding: 10px 12px;
+            font-size: 14px;
+            font-family: var(--font-body);
+            border: 1px solid var(--divider);
+            background: var(--cream);
+            color: var(--charcoal);
+        }
+
+        .channel-form input:focus,
+        .channel-form select:focus,
+        .channel-form textarea:focus { outline: none; border-color: var(--olive); }
+
+        .channel-form textarea {
+            width: 100%;
+            padding: 10px 12px;
+            font-size: 13px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            border: 1px solid var(--divider);
+            background: var(--cream);
+            color: var(--charcoal);
+            resize: vertical;
+            min-height: 80px;
+            line-height: 1.5;
+        }
+
+        .template-hint {
+            font-size: 11px;
+            color: var(--text-tertiary);
+            margin-top: 4px;
+        }
+
+        .template-hint code {
+            background: var(--sand);
+            padding: 1px 5px;
+            font-size: 11px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+
+        .test-area {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--divider-light);
+        }
+
+        .test-result {
+            margin-top: 10px;
+            padding: 10px 14px;
+            font-size: 13px;
+        }
+
+        .test-result.success { background: #D1FAE5; color: #065F46; }
+        .test-result.fail { background: #FEE2E2; color: #991B1B; }
+
+        .form-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--divider-light);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--divider);
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: var(--font-body);
+            color: var(--text-secondary);
+            transition: all 0.15s ease;
+        }
+
+        .btn-outline:hover { border-color: var(--olive); color: var(--charcoal); }
+
+        .btn-add {
+            background: var(--terracotta);
+            color: var(--white);
+            border: none;
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: var(--font-body);
+            letter-spacing: 0.02em;
+            transition: background 0.15s ease;
+        }
+
+        .btn-add:hover { background: var(--terracotta-light); }
+
+        /* ── Empty State ─────────────────────────────── */
+        .empty-state {
+            padding: 48px 24px;
+            text-align: center;
+            color: var(--text-tertiary);
+            font-size: 14px;
+        }
+
+        .empty-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
+
+        /* ── Footer ──────────────────────────────────── */
+        .footer {
+            text-align: center;
+            padding: 24px;
+            font-size: 12px;
+            color: var(--text-tertiary);
+        }
+
+        /* ── Responsive ──────────────────────────────── */
+        @media (max-width: 768px) {
+            .header { padding: 0 16px; height: 56px; }
+            .logo { font-size: 18px; }
+            .tab-nav { padding: 0 16px; }
+            .tab-btn { padding: 10px 14px; font-size: 11px; }
+            .main { padding: 20px 12px 48px; }
+            .stats-grid.cols-4, .stats-grid.cols-5, .stats-grid.cols-6 {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }
+            .stat-card { padding: 14px 16px; }
+            .stat-value { font-size: 24px; }
+            .rule-card { flex-direction: column; }
+            .rule-source { border-right: none; border-bottom: 1px solid var(--divider-light); }
+            .rule-arrow-col { width: auto; height: 40px; }
+            .settings-grid { grid-template-columns: 1fr 1fr; }
+            thead th, tbody td { padding: 8px 10px; font-size: 12px; }
+        }
+
+        @media (max-width: 480px) {
+            .tab-btn { padding: 10px 10px; font-size: 10px; letter-spacing: 0.06em; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="header-left">
+        <div class="logo">TG Forwarder</div>
+    </div>
+    <div class="header-right">
+        <span><span class="status-dot" id="statusDot"></span><span id="statusText">Running</span></span>
+        <span style="opacity:0.6" id="uptimeText"></span>
+        <button class="btn-header" id="btnStop" onclick="handleStop()">Stop</button>
+    </div>
+</div>
+
+<div class="tab-nav">
+    <button class="tab-btn active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
+    <button class="tab-btn" data-tab="forwarder" onclick="switchTab('forwarder')">Forwarder</button>
+    <button class="tab-btn" data-tab="trading" onclick="switchTab('trading')">Trading</button>
+    <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
+</div>
+
+<div class="main">
+
+    <!-- ═══ OVERVIEW TAB ═══ -->
+    <div class="tab-content active" id="tab-overview">
+        <div class="stats-grid cols-6">
+            <div class="stat-card">
+                <div class="stat-value" id="ovFwdMsgs">-</div>
+                <div class="stat-label">Forwarded</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="ovRules">-</div>
+                <div class="stat-label">Rules</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="ovTrades">-</div>
+                <div class="stat-label">Trades</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="ovWinRate">-</div>
+                <div class="stat-label">Win Rate</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="ovTotalPnl">-</div>
+                <div class="stat-label">Total PnL</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="ovTodayPnl">-</div>
+                <div class="stat-label">Today PnL</div>
+            </div>
+        </div>
+
+        <!-- Active Positions -->
+        <div class="section" id="ovActiveSection" style="display:none;">
+            <div class="section-header">
+                <div class="section-title">Active Positions</div>
+            </div>
+            <div class="active-list" id="ovActiveList"></div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">Recent Activity</div>
+                <div class="section-subtitle">auto-refresh 3s</div>
+            </div>
+            <div class="message-list" id="ovRecentList">
+                <div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Waiting for activity...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ FORWARDER TAB ═══ -->
+    <div class="tab-content" id="tab-forwarder">
+        <div class="stats-grid cols-4">
+            <div class="stat-card">
+                <div class="stat-value" id="fwdMessages">-</div>
+                <div class="stat-label">Messages</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="fwdRules">-</div>
+                <div class="stat-label">Rules</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="fwdSources">-</div>
+                <div class="stat-label">Sources</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="fwdTargets">-</div>
+                <div class="stat-label">Targets</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">Forwarding Rules</div>
+            </div>
+            <div id="rulesContainer">
+                <div class="empty-state"><div class="empty-icon">&harr;</div>Loading rules...</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">Recent Messages</div>
+                <div class="section-subtitle" id="fwdSubtitle">auto-refresh 3s</div>
+            </div>
+            <div class="message-list" id="fwdMessageList">
+                <div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Waiting for messages...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ TRADING TAB ═══ -->
+    <div class="tab-content" id="tab-trading">
+        <div class="stats-grid cols-5">
+            <div class="stat-card">
+                <div class="stat-value" id="trTotal">-</div>
+                <div class="stat-label">Total Trades</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="trWinRate">-</div>
+                <div class="stat-label">Win Rate</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="trTotalPnl">-</div>
+                <div class="stat-label">Total PnL (USDT)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="trTodayPnl">-</div>
+                <div class="stat-label">Today PnL (USDT)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="trOpen">-</div>
+                <div class="stat-label">Open / Today</div>
+            </div>
+        </div>
+
+        <!-- Simulate Signal -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">Simulate Signal</div>
+                <div class="section-subtitle">Paste a signal message to execute a real trade</div>
+            </div>
+            <div class="channel-form" style="display:block;">
+                <div class="form-row full">
+                    <div>
+                        <label for="simText">Signal Message</label>
+                        <textarea id="simText" style="min-height:80px;" placeholder="#OP – LONG&#10;진입 포인트: 1.25&#10;목표 수익: 1.27, 1.30, 1.35&#10;손절가: 1.18"></textarea>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button class="btn-add" onclick="simulateSignal()">Execute Trade</button>
+                    <span class="save-msg" id="simMsg"></span>
+                </div>
+                <div id="simResult"></div>
+            </div>
+        </div>
+
+        <div class="section" id="trActiveSection" style="display:none;">
+            <div class="section-header">
+                <div class="section-title">Active Positions</div>
+            </div>
+            <div class="active-list" id="trActiveList"></div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">Trade History</div>
+                <div class="filter-tabs">
+                    <button class="filter-tab active" data-filter="all" onclick="setFilter('all', this)">All</button>
+                    <button class="filter-tab" data-filter="open" onclick="setFilter('open', this)">Open</button>
+                    <button class="filter-tab" data-filter="closed" onclick="setFilter('closed', this)">Closed</button>
+                    <button class="filter-tab" data-filter="pending" onclick="setFilter('pending', this)">Pending</button>
+                </div>
+            </div>
+            <div class="trade-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th><th>Pair</th><th>Side</th><th>Entry</th><th>Filled</th>
+                            <th>Exit</th><th>Qty</th><th>PnL %</th><th>PnL USDT</th><th>TP1</th><th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tradeBody">
+                        <tr><td colspan="11"><div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Loading trades...</div></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ SETTINGS TAB ═══ -->
+    <div class="tab-content" id="tab-settings">
+
+        <!-- Signal Channels -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">Signal Channels</div>
+                <button class="btn-add" onclick="showChannelForm()">+ Add Channel</button>
+            </div>
+
+            <!-- Add/Edit Form (hidden by default) -->
+            <div class="channel-form" id="channelForm" style="display:none;">
+                <input type="hidden" id="chEditId" value="">
+                <div class="form-row">
+                    <div>
+                        <label for="chChannelId">Channel ID / Username</label>
+                        <input type="text" id="chChannelId" placeholder="channel_username or -100123456789">
+                    </div>
+                    <div>
+                        <label for="chChannelName">Display Name (optional)</label>
+                        <input type="text" id="chChannelName" placeholder="My Trading Channel">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div>
+                        <label for="chDefaultSide">Default Side</label>
+                        <select id="chDefaultSide">
+                            <option value="LONG">LONG (default)</option>
+                            <option value="SHORT">SHORT</option>
+                        </select>
+                    </div>
+                    <div></div>
+                </div>
+                <div class="form-row full">
+                    <div>
+                        <label for="chTemplate">Message Template</label>
+                        <textarea id="chTemplate" placeholder="#{ticker} – {side}&#10;진입 포인트: {entry}&#10;목표 수익: {tp1}, {tp2}, {tp3}&#10;손절가: {sl}"></textarea>
+                        <div class="template-hint">
+                            Placeholders: <code>{ticker}</code> <code>{side}</code> <code>{entry}</code>
+                            <code>{tp1}</code> <code>{tp2}</code> <code>{tp3}</code> <code>{sl}</code>
+                            &mdash; Only <code>{ticker}</code> is required. Missing fields use defaults.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Test area -->
+                <div class="test-area">
+                    <label for="chSample">Test: Paste a sample message</label>
+                    <textarea id="chSample" style="min-height:60px;" placeholder="Paste a real message from this channel to test..."></textarea>
+                    <div style="margin-top:8px;">
+                        <button class="btn-outline" onclick="testTemplate()">Test Template</button>
+                    </div>
+                    <div id="testResult"></div>
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn-save" id="btnChSave" onclick="saveChannel()">Save Channel</button>
+                    <button class="btn-outline" onclick="hideChannelForm()">Cancel</button>
+                    <span class="save-msg" id="chSaveMsg"></span>
+                </div>
+            </div>
+
+            <div id="channelList">
+                <div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Loading channels...</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">Trading Settings</div>
+                <div class="section-subtitle">Changes apply immediately</div>
+            </div>
+            <div class="settings-panel">
+                <div class="settings-grid">
+                    <div class="setting-field">
+                        <label for="setTradeAmount">Trade Amount</label>
+                        <input type="number" id="setTradeAmount" step="1" min="1">
+                        <div class="hint">USDT per signal</div>
+                    </div>
+                    <div class="setting-field">
+                        <label for="setSellBlocked">Sell Blocked</label>
+                        <input type="text" id="setSellBlocked" placeholder="BTC,XRP">
+                        <div class="hint">Comma-separated tickers</div>
+                    </div>
+                    <div class="setting-field">
+                        <label for="setMaxConcurrent">Max Concurrent</label>
+                        <input type="number" id="setMaxConcurrent" step="1" min="1" max="20">
+                        <div class="hint">Simultaneous positions</div>
+                    </div>
+                    <div class="setting-field">
+                        <label for="setDailyLoss">Daily Loss Limit</label>
+                        <input type="number" id="setDailyLoss" step="1" min="1">
+                        <div class="hint">USDT max daily loss</div>
+                    </div>
+                    <div class="setting-field">
+                        <label for="setEntryTimeout">Entry Timeout</label>
+                        <input type="number" id="setEntryTimeout" step="10" min="10">
+                        <div class="hint">Seconds (600 = 10 min)</div>
+                    </div>
+                </div>
+                <div class="settings-actions">
+                    <button class="btn-save" id="btnSave" onclick="saveSettings()">Save</button>
+                    <span class="save-msg" id="saveMsg"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="footer">TG Forwarder &mdash; Unified Telegram Forwarder &amp; Trading Bot</div>
+
+<script>
+    let currentTab = 'overview';
+    let currentFilter = 'all';
+
+    // ── Utility ─────────────────────────────────────
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text || '';
+        return div.innerHTML;
+    }
+
+    function pnlClass(val) {
+        if (val === null || val === undefined) return 'pnl-zero';
+        return val > 0 ? 'pnl-positive' : val < 0 ? 'pnl-negative' : 'pnl-zero';
+    }
+
+    function pnlSign(val) {
+        if (val === null || val === undefined) return '-';
+        return val > 0 ? '+' + val : val.toString();
+    }
+
+    function formatPrice(p) {
+        if (p === null || p === undefined) return '-';
+        return p < 1 ? p.toPrecision(4) : p.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    function formatTime(iso) {
+        if (!iso) return '-';
+        const d = new Date(iso);
+        if (isNaN(d)) return iso.slice(0, 16).replace('T', ' ');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mi = String(d.getMinutes()).padStart(2, '0');
+        return `${mm}-${dd} ${hh}:${mi}`;
+    }
+
+    function resultLabel(result) {
+        const map = { 'tp3_hit': 'TP3 HIT', 'sl_hit': 'SL HIT', 'external': 'External', 'timeout': 'Timeout', 'cancelled': 'Cancelled', 'error': 'Error' };
+        return map[result] || result || '-';
+    }
+
+    function resultBadgeClass(status, result) {
+        if (status === 'open') return 'open';
+        if (status === 'pending') return 'pending';
+        return result || 'closed';
+    }
+
+    // ── Tab Switching ───────────────────────────────
+    function switchTab(tabName) {
+        currentTab = tabName;
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById('tab-' + tabName).classList.add('active');
+        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        refresh();
+    }
+
+    function setFilter(filter, btn) {
+        currentFilter = filter;
+        document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+        btn.classList.add('active');
+        refresh();
+    }
+
+    // ── Data Refresh ────────────────────────────────
+    async function refresh() {
+        try {
+            const [fwdStatus, fwdMessages, trStats, trades] = await Promise.all([
+                fetch('/api/forwarder/status').then(r => r.json()),
+                fetch('/api/forwarder/messages').then(r => r.json()),
+                fetch('/api/trading/stats').then(r => r.json()),
+                fetch('/api/trading/trades?status=' + currentFilter + '&limit=100').then(r => r.json()),
+            ]);
+
+            // Update status dot
+            document.getElementById('uptimeText').textContent = fwdStatus.uptime || '';
+
+            // Overview tab
+            document.getElementById('ovFwdMsgs').textContent = (fwdStatus.total_messages || 0).toLocaleString();
+            document.getElementById('ovRules').textContent = fwdStatus.rule_count || 0;
+            document.getElementById('ovTrades').textContent = trStats.total_trades || 0;
+            document.getElementById('ovWinRate').textContent = trStats.closed_trades > 0 ? (trStats.win_rate || 0) + '%' : '-';
+
+            const ovTotalEl = document.getElementById('ovTotalPnl');
+            ovTotalEl.textContent = pnlSign(trStats.total_pnl);
+            ovTotalEl.className = 'stat-value ' + pnlClass(trStats.total_pnl);
+
+            const ovTodayEl = document.getElementById('ovTodayPnl');
+            ovTodayEl.textContent = pnlSign(trStats.today_pnl);
+            ovTodayEl.className = 'stat-value ' + pnlClass(trStats.today_pnl);
+
+            renderActivePositions('ov', trStats.active_trades || []);
+            renderOverviewRecent(fwdMessages.messages || [], trades.trades || []);
+
+            // Forwarder tab
+            document.getElementById('fwdMessages').textContent = (fwdStatus.total_messages || 0).toLocaleString();
+            document.getElementById('fwdRules').textContent = fwdStatus.rule_count || 0;
+            document.getElementById('fwdSources').textContent = fwdStatus.source_count || 0;
+            document.getElementById('fwdTargets').textContent = fwdStatus.target_count || 0;
+
+            renderForwarderMessages(fwdMessages.messages || []);
+
+            // Forwarder rules (only on forwarder tab, load once)
+            if (currentTab === 'forwarder') {
+                const fwdRules = await fetch('/api/forwarder/rules').then(r => r.json());
+                renderForwarderRules(fwdRules.rules || []);
+            }
+
+            // Trading tab
+            document.getElementById('trTotal').textContent = trStats.total_trades || 0;
+            document.getElementById('trWinRate').textContent = trStats.closed_trades > 0 ? (trStats.win_rate || 0) + '%' : '-';
+
+            const trTotalEl = document.getElementById('trTotalPnl');
+            trTotalEl.textContent = pnlSign(trStats.total_pnl);
+            trTotalEl.className = 'stat-value ' + pnlClass(trStats.total_pnl);
+
+            const trTodayEl = document.getElementById('trTodayPnl');
+            trTodayEl.textContent = pnlSign(trStats.today_pnl);
+            trTodayEl.className = 'stat-value ' + pnlClass(trStats.today_pnl);
+
+            document.getElementById('trOpen').textContent = (trStats.open_count || 0) + ' / ' + (trStats.today_count || 0);
+
+            renderActivePositions('tr', trStats.active_trades || []);
+            renderTrades(trades.trades || []);
+
+        } catch (e) {
+            document.getElementById('statusDot').classList.add('disconnected');
+            document.getElementById('statusText').textContent = 'Disconnected';
+        }
+    }
+
+    // ── Renderers ───────────────────────────────────
+
+    function renderActivePositions(prefix, keys) {
+        const section = document.getElementById(prefix + 'ActiveSection');
+        const list = document.getElementById(prefix + 'ActiveList');
+        if (!keys.length) { section.style.display = 'none'; return; }
+        section.style.display = 'block';
+        list.innerHTML = keys.map(key => {
+            const [ticker, side] = key.split('_');
+            const sideLC = side.toLowerCase();
+            return `<div class="active-card ${sideLC}">
+                <span class="active-pair">${escapeHtml(ticker)}/USDT</span>
+                <span class="active-side ${sideLC}">${side}</span>
+                <div class="active-meta">Monitoring...</div>
+            </div>`;
+        }).join('');
+    }
+
+    function renderOverviewRecent(fwdMsgs, trades) {
+        const list = document.getElementById('ovRecentList');
+        const items = [];
+
+        fwdMsgs.slice(0, 5).forEach(msg => {
+            items.push(`<div class="message-item">
+                <span class="msg-time">${msg.time || ''}</span>
+                <span class="msg-status ${msg.status}">${msg.status === 'success' ? '&#10003;' : '&#10007;'}</span>
+                <div class="msg-body">
+                    <div class="msg-route">${escapeHtml(msg.source)} <span class="arrow">&rarr;</span> ${escapeHtml(msg.target)}</div>
+                    <div class="msg-preview">${escapeHtml(msg.preview)}</div>
+                </div>
+            </div>`);
+        });
+
+        trades.slice(0, 5).forEach(t => {
+            const statusText = t.status === 'open' ? 'OPEN' : t.status === 'pending' ? 'PENDING' : resultLabel(t.result);
+            items.push(`<div class="message-item">
+                <span class="msg-time">${formatTime(t.created_at)}</span>
+                <span class="msg-status ${t.pnl_usdt > 0 ? 'success' : t.pnl_usdt < 0 ? 'error' : ''}">${t.side === 'LONG' ? '&#9650;' : '&#9660;'}</span>
+                <div class="msg-body">
+                    <div class="msg-route"><strong>${escapeHtml(t.ticker)}/USDT</strong> <span class="side-tag ${t.side.toLowerCase()}" style="font-size:9px;padding:1px 5px;">${t.side}</span></div>
+                    <div class="msg-preview">${statusText}${t.pnl_usdt !== null ? ' | PnL: ' + pnlSign(t.pnl_usdt) + ' USDT' : ''}</div>
+                </div>
+            </div>`);
+        });
+
+        if (!items.length) {
+            list.innerHTML = '<div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Waiting for activity...</div>';
+        } else {
+            list.innerHTML = items.join('');
+        }
+    }
+
+    function renderForwarderRules(rules) {
+        const container = document.getElementById('rulesContainer');
+        if (!rules.length) {
+            container.innerHTML = '<div class="empty-state"><div class="empty-icon">&harr;</div>No rules configured</div>';
+            return;
+        }
+        container.innerHTML = rules.map(rule => {
+            const targets = rule.targets.map(t => `
+                <div class="rule-target-item">
+                    <div class="target-tag">TARGET</div>
+                    <div class="entity-name">${escapeHtml(t.name)}</div>
+                    <div class="entity-username">${escapeHtml(t.username)}</div>
+                </div>
+            `).join('');
+            return `<div class="rule-card">
+                <div class="rule-source">
+                    <div class="source-tag">SOURCE</div>
+                    <div class="entity-name">${escapeHtml(rule.source.name)}</div>
+                    <div class="entity-username">${escapeHtml(rule.source.username)}</div>
+                </div>
+                <div class="rule-arrow-col"><div class="rule-arrow">&rarr;</div></div>
+                <div class="rule-targets">${targets}</div>
+            </div>`;
+        }).join('');
+    }
+
+    function renderForwarderMessages(messages) {
+        const list = document.getElementById('fwdMessageList');
+        if (!messages.length) {
+            list.innerHTML = '<div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Waiting for messages...</div>';
+            return;
+        }
+        list.innerHTML = messages.map(msg => `
+            <div class="message-item">
+                <span class="msg-time">${msg.time || ''}</span>
+                <span class="msg-status ${msg.status}">${msg.status === 'success' ? '&#10003;' : '&#10007;'}</span>
+                <div class="msg-body">
+                    <div class="msg-route">${escapeHtml(msg.source)} <span class="arrow">&rarr;</span> ${escapeHtml(msg.target)}</div>
+                    <div class="msg-preview">${escapeHtml(msg.preview)}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderTrades(trades) {
+        const body = document.getElementById('tradeBody');
+        if (!trades.length) {
+            body.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>No trades found</div></td></tr>`;
+            return;
+        }
+        body.innerHTML = trades.map(t => `
+            <tr>
+                <td>${formatTime(t.created_at)}</td>
+                <td><strong>${escapeHtml(t.ticker)}/USDT</strong></td>
+                <td><span class="side-tag ${t.side.toLowerCase()}">${t.side}</span></td>
+                <td>${formatPrice(t.entry_price)}</td>
+                <td>${formatPrice(t.filled_price)}</td>
+                <td>${formatPrice(t.exit_price)}</td>
+                <td>${t.qty !== null ? t.qty : '-'}</td>
+                <td class="${pnlClass(t.pnl_pct)}">${t.pnl_pct !== null ? pnlSign(t.pnl_pct) + '%' : '-'}</td>
+                <td class="${pnlClass(t.pnl_usdt)}">${t.pnl_usdt !== null ? pnlSign(t.pnl_usdt) : '-'}</td>
+                <td>${t.tp1_hit ? '<span class="tp1-check">&#10003;</span>' : '-'}</td>
+                <td><span class="status-badge-trade ${resultBadgeClass(t.status, t.result)}">${
+                    t.status === 'open' ? 'OPEN' :
+                    t.status === 'pending' ? 'PENDING' :
+                    resultLabel(t.result)
+                }</span></td>
+            </tr>
+        `).join('');
+    }
+
+    // ── Settings ────────────────────────────────────
+    async function loadSettings() {
+        try {
+            const data = await fetch('/api/trading/settings').then(r => r.json());
+            document.getElementById('setTradeAmount').value = data.TRADE_AMOUNT;
+            document.getElementById('setSellBlocked').value = data.SELL_BLOCKED;
+            document.getElementById('setMaxConcurrent').value = data.MAX_CONCURRENT;
+            document.getElementById('setDailyLoss').value = data.DAILY_LOSS_LIMIT;
+            document.getElementById('setEntryTimeout').value = data.ENTRY_TIMEOUT;
+        } catch (e) {}
+    }
+
+    async function saveSettings() {
+        const btn = document.getElementById('btnSave');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        const payload = {
+            TRADE_AMOUNT: parseFloat(document.getElementById('setTradeAmount').value),
+            SELL_BLOCKED: document.getElementById('setSellBlocked').value.trim(),
+            MAX_CONCURRENT: parseInt(document.getElementById('setMaxConcurrent').value),
+            DAILY_LOSS_LIMIT: parseFloat(document.getElementById('setDailyLoss').value),
+            ENTRY_TIMEOUT: parseInt(document.getElementById('setEntryTimeout').value),
+        };
+
+        try {
+            const res = await fetch('/api/trading/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                showSaveMsg(data.error || 'Save failed', true);
+            } else {
+                document.getElementById('setTradeAmount').value = data.TRADE_AMOUNT;
+                document.getElementById('setSellBlocked').value = data.SELL_BLOCKED;
+                document.getElementById('setMaxConcurrent').value = data.MAX_CONCURRENT;
+                document.getElementById('setDailyLoss').value = data.DAILY_LOSS_LIMIT;
+                document.getElementById('setEntryTimeout').value = data.ENTRY_TIMEOUT;
+                showSaveMsg('Saved', false);
+            }
+        } catch (e) {
+            showSaveMsg('Network error', true);
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Save';
+    }
+
+    function showSaveMsg(text, isError) {
+        const el = document.getElementById('saveMsg');
+        el.textContent = text;
+        el.className = 'save-msg ' + (isError ? 'err' : 'ok');
+        setTimeout(() => { el.textContent = ''; }, 3000);
+    }
+
+    // ── Stop Button ─────────────────────────────────
+    let stopConfirm = false;
+    let stopTimer = null;
+
+    async function handleStop() {
+        const btn = document.getElementById('btnStop');
+        if (!stopConfirm) {
+            stopConfirm = true;
+            btn.textContent = 'Confirm';
+            btn.classList.add('confirming');
+            stopTimer = setTimeout(() => {
+                stopConfirm = false;
+                btn.textContent = 'Stop';
+                btn.classList.remove('confirming');
+            }, 3000);
+            return;
+        }
+        clearTimeout(stopTimer);
+        btn.textContent = 'Stopping...';
+        btn.disabled = true;
+        try { await fetch('/api/shutdown', { method: 'POST' }); } catch (e) {}
+        setTimeout(() => {
+            document.getElementById('statusDot').classList.add('disconnected');
+            document.getElementById('statusText').textContent = 'Stopped';
+            btn.textContent = 'Stopped';
+        }, 1500);
+    }
+
+    // ── Simulate Signal ──────────────────────────────
+
+    async function simulateSignal() {
+        const text = document.getElementById('simText').value.trim();
+        const msgEl = document.getElementById('simMsg');
+        const resultEl = document.getElementById('simResult');
+        resultEl.innerHTML = '';
+
+        if (!text) {
+            msgEl.textContent = 'Enter a signal message';
+            msgEl.className = 'save-msg err';
+            setTimeout(() => { msgEl.textContent = ''; }, 3000);
+            return;
+        }
+
+        if (!confirm('This will execute a REAL trade. Continue?')) return;
+
+        msgEl.textContent = 'Sending...';
+        msgEl.className = 'save-msg';
+
+        try {
+            const res = await fetch('/api/trading/simulate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({text}),
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                msgEl.textContent = '';
+                resultEl.innerHTML = `<div class="test-result fail" style="margin-top:12px;">${escapeHtml(data.error)}</div>`;
+            } else {
+                msgEl.textContent = '';
+                const s = data.signal;
+                let html = '<div class="test-result success" style="margin-top:12px;">';
+                html += `<strong>Trade submitted!</strong> (template: ${escapeHtml(data.template_used || 'default')})<br>`;
+                html += `${escapeHtml(s.ticker)} ${escapeHtml(s.side)}`;
+                html += s.market_order ? ' @ market' : ` @ ${s.entry}`;
+                html += ` | TP: ${s.tp1}/${s.tp2}/${s.tp3} | SL: ${s.sl}`;
+                html += '</div>';
+                resultEl.innerHTML = html;
+                setTimeout(refresh, 1000);
+            }
+        } catch (e) {
+            msgEl.textContent = '';
+            resultEl.innerHTML = '<div class="test-result fail" style="margin-top:12px;">Network error</div>';
+        }
+    }
+
+    // ── Channel Management ──────────────────────────
+
+    let channelData = [];
+
+    async function loadChannels() {
+        try {
+            const data = await fetch('/api/trading/channels').then(r => r.json());
+            channelData = data.channels || [];
+            renderChannels();
+        } catch (e) {}
+    }
+
+    function renderChannels() {
+        const list = document.getElementById('channelList');
+        if (!channelData.length) {
+            list.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9881;</div>No signal channels configured.<br>Click "+ Add Channel" to register one.</div>';
+            return;
+        }
+        list.innerHTML = channelData.map(ch => {
+            const sideLC = (ch.default_side || 'LONG').toLowerCase();
+            const enabledClass = ch.enabled ? '' : ' disabled';
+            const templatePreview = escapeHtml(ch.template).replace(/\{(\w+)\}/g, '<code>{$1}</code>');
+            return `<div class="channel-card${enabledClass}">
+                <div class="channel-info">
+                    <div>
+                        <span class="channel-name">${escapeHtml(ch.channel_name || ch.channel_id)}</span>
+                        <span class="channel-side-badge ${sideLC}">${ch.default_side || 'LONG'}</span>
+                        ${!ch.enabled ? '<span style="font-size:11px;color:var(--text-tertiary);margin-left:8px;">DISABLED</span>' : ''}
+                    </div>
+                    <div class="channel-id">${escapeHtml(ch.channel_id)}</div>
+                    <div class="channel-template">${templatePreview}</div>
+                </div>
+                <div class="channel-actions">
+                    <button class="btn-icon" onclick="editChannel(${ch.id})" title="Edit">&#9998;</button>
+                    <button class="btn-icon" onclick="toggleChannel(${ch.id}, ${ch.enabled ? 0 : 1})" title="${ch.enabled ? 'Disable' : 'Enable'}">${ch.enabled ? '&#9724;' : '&#9654;'}</button>
+                    <button class="btn-icon danger" onclick="deleteChannel(${ch.id})" title="Delete">&#10005;</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function showChannelForm(editId) {
+        document.getElementById('channelForm').style.display = 'block';
+        document.getElementById('chEditId').value = editId || '';
+        if (!editId) {
+            document.getElementById('chChannelId').value = '';
+            document.getElementById('chChannelName').value = '';
+            document.getElementById('chTemplate').value = '';
+            document.getElementById('chDefaultSide').value = 'LONG';
+            document.getElementById('chSample').value = '';
+            document.getElementById('testResult').innerHTML = '';
+        }
+        document.getElementById('btnChSave').textContent = editId ? 'Update' : 'Save Channel';
+    }
+
+    function hideChannelForm() {
+        document.getElementById('channelForm').style.display = 'none';
+        document.getElementById('chEditId').value = '';
+        document.getElementById('testResult').innerHTML = '';
+    }
+
+    function editChannel(id) {
+        const ch = channelData.find(c => c.id === id);
+        if (!ch) return;
+        showChannelForm(id);
+        document.getElementById('chChannelId').value = ch.channel_id;
+        document.getElementById('chChannelName').value = ch.channel_name || '';
+        document.getElementById('chTemplate').value = ch.template;
+        document.getElementById('chDefaultSide').value = ch.default_side || 'LONG';
+    }
+
+    async function saveChannel() {
+        const editId = document.getElementById('chEditId').value;
+        const payload = {
+            channel_id: document.getElementById('chChannelId').value.trim(),
+            channel_name: document.getElementById('chChannelName').value.trim(),
+            template: document.getElementById('chTemplate').value.trim(),
+            default_side: document.getElementById('chDefaultSide').value,
+        };
+
+        if (!payload.channel_id || !payload.template) {
+            showChMsg('Channel ID and template are required', true);
+            return;
+        }
+
+        try {
+            let res;
+            if (editId) {
+                res = await fetch('/api/trading/channels/' + editId, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+            } else {
+                res = await fetch('/api/trading/channels', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+            }
+            const data = await res.json();
+            if (!res.ok) {
+                showChMsg(data.error || 'Save failed', true);
+            } else {
+                hideChannelForm();
+                loadChannels();
+                showChMsg('Saved! Restart app to apply.', false);
+            }
+        } catch (e) {
+            showChMsg('Network error', true);
+        }
+    }
+
+    async function deleteChannel(id) {
+        if (!confirm('Delete this channel?')) return;
+        try {
+            await fetch('/api/trading/channels/' + id, {method: 'DELETE'});
+            loadChannels();
+        } catch (e) {}
+    }
+
+    async function toggleChannel(id, enabled) {
+        try {
+            await fetch('/api/trading/channels/' + id, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({enabled: !!enabled}),
+            });
+            loadChannels();
+        } catch (e) {}
+    }
+
+    async function testTemplate() {
+        const template = document.getElementById('chTemplate').value.trim();
+        const sample = document.getElementById('chSample').value.trim();
+        const defaultSide = document.getElementById('chDefaultSide').value;
+        const resultEl = document.getElementById('testResult');
+
+        if (!template || !sample) {
+            resultEl.innerHTML = '<div class="test-result fail">Template and sample text are both required.</div>';
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/trading/channels/test', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({template, sample, default_side: defaultSide}),
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                resultEl.innerHTML = `<div class="test-result fail">${escapeHtml(data.error)}</div>`;
+            } else if (!data.match) {
+                resultEl.innerHTML = `<div class="test-result fail">No match. Check your template against the sample message.</div>`;
+            } else {
+                const s = data.signal;
+                let html = '<div class="test-result success"><strong>Match!</strong><br>';
+                html += `Ticker: <strong>${escapeHtml(s.ticker || '-')}</strong>`;
+                html += ` | Side: <strong>${escapeHtml(s.side || '-')}</strong>`;
+                if (s.market_order) {
+                    html += ' | Entry: <strong>(market)</strong>';
+                } else {
+                    html += ` | Entry: <strong>${s.entry || '-'}</strong>`;
+                }
+                html += `<br>TP1: ${s.tp1 || '-'} | TP2: ${s.tp2 || '-'} | TP3: ${s.tp3 || '-'} | SL: ${s.sl || '-'}`;
+                const found = data.fields_found || [];
+                const missing = ['ticker','side','entry','tp1','tp2','tp3','sl'].filter(f => !found.includes(f));
+                if (missing.length) {
+                    html += `<br><span style="font-size:11px;opacity:0.7;">Defaults applied for: ${missing.join(', ')}</span>`;
+                }
+                html += '</div>';
+                resultEl.innerHTML = html;
+            }
+        } catch (e) {
+            resultEl.innerHTML = '<div class="test-result fail">Network error</div>';
+        }
+    }
+
+    function showChMsg(text, isError) {
+        const el = document.getElementById('chSaveMsg');
+        el.textContent = text;
+        el.className = 'save-msg ' + (isError ? 'err' : 'ok');
+        setTimeout(() => { el.textContent = ''; }, 4000);
+    }
+
+    // ── Init ────────────────────────────────────────
+    loadSettings();
+    loadChannels();
+    refresh();
+    setInterval(refresh, 3000);
+</script>
+
+</body>
+</html>

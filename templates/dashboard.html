@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Forwarder Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --cream: #F5F0E8;
+            --terracotta: #C65D3B;
+            --terracotta-light: #D4836A;
+            --olive: #3D4A3D;
+            --olive-light: #5A6B5A;
+            --sand: #E8DFD0;
+            --charcoal: #2E2B28;
+            --white: #FFFFFF;
+            --success: #4A7C4A;
+            --error: #C65D3B;
+            --text-primary: #000000;
+            --text-secondary: rgba(0, 0, 0, 0.6);
+            --text-tertiary: rgba(0, 0, 0, 0.38);
+            --divider: rgba(0, 0, 0, 0.15);
+            --divider-light: rgba(0, 0, 0, 0.08);
+            --shadow-sm: 0 0 12px rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 0 16px rgba(0, 0, 0, 0.08);
+            --shadow-lg: 0 0 20px rgba(0, 0, 0, 0.10);
+
+            --font-heading: 'Fraunces', Georgia, 'Noto Serif KR', serif;
+            --font-body: -apple-system, BlinkMacSystemFont, 'Pretendard Variable', Pretendard,
+                         'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--font-body);
+            background-color: var(--cream);
+            color: var(--text-primary);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* ── Header ───────────────────────────────────────── */
+        .header {
+            background: var(--olive);
+            color: var(--white);
+            padding: 0 32px;
+            height: 64px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            font-weight: 500;
+            letter-spacing: -0.02em;
+        }
+
+        .logo-sub {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            opacity: 0.6;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            font-size: 14px;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        .status-dot.connected {
+            background: #4ADE80;
+            box-shadow: 0 0 8px rgba(74, 222, 128, 0.5);
+        }
+        .status-dot.disconnected {
+            background: var(--error);
+            box-shadow: 0 0 8px rgba(198, 93, 59, 0.5);
+        }
+
+        .uptime {
+            opacity: 0.7;
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .btn-stop {
+            background: transparent;
+            color: var(--white);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 6px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            cursor: pointer;
+            font-family: var(--font-body);
+            transition: all 0.2s ease;
+        }
+        .btn-stop:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+        .btn-stop:active {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .btn-stop.confirming {
+            border-color: var(--terracotta);
+            background: var(--terracotta);
+        }
+
+        /* ── Main ─────────────────────────────────────────── */
+        .main {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 32px 24px 64px;
+        }
+
+        /* ── Stats Grid ───────────────────────────────────── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: var(--white);
+            padding: 20px 24px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .stat-value {
+            font-family: var(--font-heading);
+            font-size: 32px;
+            font-weight: 500;
+            color: var(--charcoal);
+            line-height: 1.1;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 600;
+        }
+
+        /* ── Section ──────────────────────────────────────── */
+        .section {
+            margin-bottom: 32px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 12px;
+        }
+
+        .section-title {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            font-weight: 500;
+            color: var(--charcoal);
+            letter-spacing: -0.01em;
+        }
+
+        .section-subtitle {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            letter-spacing: 0.02em;
+        }
+
+        /* ── Rule Cards ───────────────────────────────────── */
+        .rule-card {
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: stretch;
+        }
+
+        .rule-source {
+            flex: 1;
+            padding: 20px 24px;
+            border-right: 1px solid var(--divider-light);
+        }
+
+        .rule-arrow-col {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 56px;
+            flex-shrink: 0;
+        }
+
+        .rule-arrow {
+            width: 32px;
+            height: 32px;
+            background: var(--terracotta);
+            color: var(--white);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .rule-targets {
+            flex: 1;
+            padding: 20px 24px;
+        }
+
+        .rule-target-item {
+            padding: 4px 0;
+        }
+        .rule-target-item + .rule-target-item {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--divider-light);
+        }
+
+        .entity-name {
+            font-weight: 500;
+            font-size: 15px;
+            color: var(--charcoal);
+            line-height: 1.4;
+        }
+
+        .entity-username {
+            font-size: 12px;
+            color: var(--text-secondary);
+            letter-spacing: 0.01em;
+        }
+
+        .source-tag, .target-tag {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 2px 8px;
+            margin-bottom: 6px;
+        }
+
+        .source-tag {
+            background: var(--sand);
+            color: var(--charcoal);
+        }
+
+        .target-tag {
+            background: var(--terracotta);
+            color: var(--white);
+        }
+
+        /* ── Message List ─────────────────────────────────── */
+        .message-list {
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            max-height: 480px;
+            overflow-y: auto;
+        }
+
+        .message-list::-webkit-scrollbar {
+            width: 4px;
+        }
+        .message-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .message-list::-webkit-scrollbar-thumb {
+            background: var(--sand);
+        }
+
+        .message-item {
+            padding: 12px 24px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            border-bottom: 1px solid var(--divider-light);
+            font-size: 14px;
+            transition: background 0.15s ease;
+        }
+        .message-item:hover {
+            background: rgba(0, 0, 0, 0.02);
+        }
+        .message-item:last-child {
+            border-bottom: none;
+        }
+
+        .msg-time {
+            color: var(--text-tertiary);
+            font-size: 12px;
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
+            min-width: 56px;
+            padding-top: 1px;
+        }
+
+        .msg-status {
+            flex-shrink: 0;
+            font-size: 14px;
+            width: 18px;
+            text-align: center;
+            padding-top: 1px;
+        }
+        .msg-status.success { color: var(--success); }
+        .msg-status.error { color: var(--error); }
+
+        .msg-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .msg-route {
+            font-weight: 500;
+            font-size: 13px;
+            color: var(--charcoal);
+            margin-bottom: 2px;
+        }
+        .msg-route .arrow {
+            color: var(--terracotta);
+            margin: 0 4px;
+        }
+
+        .msg-preview {
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.5;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* ── Empty State ──────────────────────────────────── */
+        .empty-state {
+            padding: 48px 24px;
+            text-align: center;
+            color: var(--text-tertiary);
+            font-size: 14px;
+        }
+
+        .empty-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+            opacity: 0.4;
+        }
+
+        /* ── Footer ───────────────────────────────────────── */
+        .footer {
+            text-align: center;
+            padding: 24px;
+            font-size: 12px;
+            color: var(--text-tertiary);
+            letter-spacing: 0.02em;
+        }
+
+        /* ── Responsive ───────────────────────────────────── */
+        @media (max-width: 768px) {
+            .header {
+                padding: 0 16px;
+                height: 56px;
+            }
+            .logo { font-size: 18px; }
+            .logo-sub { display: none; }
+
+            .main { padding: 20px 16px 48px; }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }
+            .stat-card { padding: 16px; }
+            .stat-value { font-size: 28px; }
+
+            .rule-card {
+                flex-direction: column;
+            }
+            .rule-source {
+                border-right: none;
+                border-bottom: 1px solid var(--divider-light);
+            }
+            .rule-arrow-col {
+                width: auto;
+                height: 40px;
+            }
+
+            .message-item {
+                padding: 10px 16px;
+                gap: 8px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .stats-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            .header-right .uptime { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="header-left">
+        <div>
+            <div class="logo">TG Forwarder</div>
+            <div class="logo-sub">Message Forwarding Service</div>
+        </div>
+    </div>
+    <div class="header-right">
+        <div class="status-badge">
+            <span class="status-dot disconnected" id="statusDot"></span>
+            <span id="statusText">Connecting...</span>
+        </div>
+        <span class="uptime" id="uptimeText"></span>
+        <button class="btn-stop" id="btnStop" onclick="handleStop()">Stop</button>
+    </div>
+</div>
+
+<div class="main">
+
+    <!-- Stats -->
+    <div class="stats-grid" id="statsGrid">
+        <div class="stat-card">
+            <div class="stat-value" id="statMessages">-</div>
+            <div class="stat-label">Messages</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statRules">-</div>
+            <div class="stat-label">Rules</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statSources">-</div>
+            <div class="stat-label">Sources</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statTargets">-</div>
+            <div class="stat-label">Targets</div>
+        </div>
+    </div>
+
+    <!-- Forwarding Rules -->
+    <div class="section">
+        <div class="section-header">
+            <div class="section-title">Forwarding Rules</div>
+            <div class="section-subtitle">source &rarr; target mapping</div>
+        </div>
+        <div id="rulesContainer">
+            <div class="empty-state">
+                <div class="empty-icon">&harr;</div>
+                Loading rules...
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Messages -->
+    <div class="section">
+        <div class="section-header">
+            <div class="section-title">Recent Messages</div>
+            <div class="section-subtitle" id="msgSubtitle">auto-refresh 3s</div>
+        </div>
+        <div class="message-list" id="messageList">
+            <div class="empty-state">
+                <div class="empty-icon">&middot;&middot;&middot;</div>
+                Waiting for messages...
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="footer">
+    Powered by TGForwarder &mdash; Telegram Message Forwarding Service
+</div>
+
+<script>
+    async function fetchJSON(url) {
+        const res = await fetch(url);
+        return res.json();
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text || '';
+        return div.innerHTML;
+    }
+
+    async function refresh() {
+        try {
+            const [status, rules, messages] = await Promise.all([
+                fetchJSON('/api/status'),
+                fetchJSON('/api/rules'),
+                fetchJSON('/api/messages'),
+            ]);
+
+            // Status
+            const dot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const uptimeText = document.getElementById('uptimeText');
+
+            dot.className = 'status-dot ' + (status.connected ? 'connected' : 'disconnected');
+            statusText.textContent = status.connected ? 'Connected' : 'Disconnected';
+            uptimeText.textContent = status.uptime || '';
+
+            // Stats
+            document.getElementById('statMessages').textContent = status.total_messages.toLocaleString();
+            document.getElementById('statRules').textContent = status.rule_count;
+            document.getElementById('statSources').textContent = status.source_count;
+            document.getElementById('statTargets').textContent = status.target_count;
+
+            // Rules
+            renderRules(rules.rules);
+
+            // Messages
+            renderMessages(messages.messages);
+
+        } catch (e) {
+            document.getElementById('statusDot').className = 'status-dot disconnected';
+            document.getElementById('statusText').textContent = 'Dashboard disconnected';
+            document.getElementById('uptimeText').textContent = '';
+        }
+    }
+
+    function renderRules(rules) {
+        const container = document.getElementById('rulesContainer');
+        if (!rules || !rules.length) {
+            container.innerHTML = '<div class="empty-state"><div class="empty-icon">&harr;</div>No rules configured</div>';
+            return;
+        }
+
+        container.innerHTML = rules.map(rule => {
+            const targets = rule.targets.map(t => `
+                <div class="rule-target-item">
+                    <div class="target-tag">TARGET</div>
+                    <div class="entity-name">${escapeHtml(t.name)}</div>
+                    <div class="entity-username">${escapeHtml(t.username)}</div>
+                </div>
+            `).join('');
+
+            return `
+                <div class="rule-card">
+                    <div class="rule-source">
+                        <div class="source-tag">SOURCE</div>
+                        <div class="entity-name">${escapeHtml(rule.source.name)}</div>
+                        <div class="entity-username">${escapeHtml(rule.source.username)}</div>
+                    </div>
+                    <div class="rule-arrow-col">
+                        <div class="rule-arrow">&rarr;</div>
+                    </div>
+                    <div class="rule-targets">
+                        ${targets}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderMessages(messages) {
+        const list = document.getElementById('messageList');
+        if (!messages || !messages.length) {
+            list.innerHTML = '<div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Waiting for messages...</div>';
+            return;
+        }
+
+        list.innerHTML = messages.map(msg => `
+            <div class="message-item">
+                <span class="msg-time">${msg.time}</span>
+                <span class="msg-status ${msg.status}">${msg.status === 'success' ? '&#10003;' : '&#10007;'}</span>
+                <div class="msg-body">
+                    <div class="msg-route">
+                        ${escapeHtml(msg.source)}
+                        <span class="arrow">&rarr;</span>
+                        ${escapeHtml(msg.target)}
+                    </div>
+                    <div class="msg-preview">${escapeHtml(msg.preview)}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Stop button with confirmation
+    let stopConfirm = false;
+    let stopTimer = null;
+
+    async function handleStop() {
+        const btn = document.getElementById('btnStop');
+        if (!stopConfirm) {
+            stopConfirm = true;
+            btn.textContent = 'Confirm Stop';
+            btn.classList.add('confirming');
+            stopTimer = setTimeout(() => {
+                stopConfirm = false;
+                btn.textContent = 'Stop';
+                btn.classList.remove('confirming');
+            }, 3000);
+            return;
+        }
+        clearTimeout(stopTimer);
+        btn.textContent = 'Stopping...';
+        btn.disabled = true;
+        try {
+            await fetch('/api/shutdown', { method: 'POST' });
+        } catch (e) {}
+        setTimeout(() => {
+            document.getElementById('statusDot').className = 'status-dot disconnected';
+            document.getElementById('statusText').textContent = 'Stopped';
+            btn.textContent = 'Stopped';
+        }, 1500);
+    }
+
+    // Initial fetch + auto-refresh
+    refresh();
+    setInterval(refresh, 3000);
+</script>
+
+</body>
+</html>

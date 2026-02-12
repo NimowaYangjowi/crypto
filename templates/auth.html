@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TG Forwarder - Setup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --cream: #F5F0E8;
+            --terracotta: #C65D3B;
+            --olive: #3D4A3D;
+            --olive-light: #5A6B5A;
+            --sand: #E8DFD0;
+            --charcoal: #2E2B28;
+            --white: #FFFFFF;
+            --success: #4A7C4A;
+            --error: #C65D3B;
+            --text-primary: #000000;
+            --text-secondary: rgba(0, 0, 0, 0.6);
+            --text-tertiary: rgba(0, 0, 0, 0.38);
+            --divider: rgba(0, 0, 0, 0.15);
+            --divider-light: rgba(0, 0, 0, 0.08);
+            --shadow-sm: 0 0 12px rgba(0, 0, 0, 0.06);
+            --font-heading: 'Fraunces', Georgia, serif;
+            --font-body: -apple-system, BlinkMacSystemFont, 'Pretendard Variable', Pretendard, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--font-body);
+            background-color: var(--cream);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .header {
+            background: var(--olive);
+            color: var(--white);
+            padding: 0 32px;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            width: 100%;
+        }
+
+        .logo {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            font-weight: 500;
+            letter-spacing: -0.02em;
+        }
+
+        .logo-sub {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            opacity: 0.6;
+        }
+
+        .container {
+            max-width: 560px;
+            width: 100%;
+            padding: 40px 24px;
+        }
+
+        .step-title {
+            font-family: var(--font-heading);
+            font-size: 24px;
+            font-weight: 500;
+            color: var(--charcoal);
+            margin-bottom: 8px;
+        }
+
+        .step-desc {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+
+        .card {
+            background: var(--white);
+            box-shadow: var(--shadow-sm);
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+
+        .field {
+            margin-bottom: 16px;
+        }
+
+        .field label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .field input {
+            width: 100%;
+            padding: 10px 12px;
+            font-size: 14px;
+            font-family: var(--font-body);
+            border: 1px solid var(--divider);
+            background: var(--cream);
+            color: var(--charcoal);
+            transition: border-color 0.15s ease;
+        }
+
+        .field input:focus {
+            outline: none;
+            border-color: var(--olive);
+        }
+
+        .field .hint {
+            font-size: 11px;
+            color: var(--text-tertiary);
+            margin-top: 4px;
+        }
+
+        .section-label {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--terracotta);
+            margin: 20px 0 12px;
+            padding-top: 16px;
+            border-top: 1px solid var(--divider-light);
+        }
+
+        .section-label:first-child {
+            margin-top: 0;
+            border-top: none;
+            padding-top: 0;
+        }
+
+        .btn {
+            background: var(--olive);
+            color: var(--white);
+            border: none;
+            padding: 12px 32px;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            font-family: var(--font-body);
+            transition: background 0.15s ease;
+            width: 100%;
+        }
+
+        .btn:hover { background: var(--olive-light); }
+        .btn:disabled { opacity: 0.5; cursor: default; }
+
+        .msg {
+            font-size: 13px;
+            margin-top: 12px;
+            text-align: center;
+        }
+
+        .msg.error { color: var(--error); }
+        .msg.success { color: var(--success); }
+
+        .step { display: none; }
+        .step.active { display: block; }
+
+        .progress {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 32px;
+        }
+
+        .progress-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--divider);
+        }
+
+        .progress-dot.done {
+            background: var(--success);
+        }
+
+        .progress-dot.current {
+            background: var(--terracotta);
+            box-shadow: 0 0 6px rgba(198, 93, 59, 0.4);
+        }
+
+        .optional-tag {
+            display: inline-block;
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            background: var(--sand);
+            color: var(--text-secondary);
+            padding: 1px 6px;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div>
+        <div class="logo">TG Forwarder</div>
+        <div class="logo-sub">Initial Setup</div>
+    </div>
+</div>
+
+<div class="container">
+
+    <div class="progress" id="progress">
+        <div class="progress-dot current" id="dot0"></div>
+        <div class="progress-dot" id="dot1"></div>
+        <div class="progress-dot" id="dot2"></div>
+    </div>
+
+    <!-- Step 0: Configuration -->
+    <div class="step active" id="step0">
+        <div class="step-title">API Configuration</div>
+        <div class="step-desc">Enter your Telegram and Binance API credentials. These will be saved locally.</div>
+        <div class="card">
+            <div class="section-label">Telegram</div>
+            <div class="field">
+                <label for="apiId">API ID</label>
+                <input type="text" id="apiId" placeholder="12345678">
+                <div class="hint">Get from <a href="https://my.telegram.org" target="_blank">my.telegram.org</a></div>
+            </div>
+            <div class="field">
+                <label for="apiHash">API Hash</label>
+                <input type="text" id="apiHash" placeholder="abcdef1234567890">
+            </div>
+            <div class="field">
+                <label for="botToken">Bot Token <span class="optional-tag">Optional</span></label>
+                <input type="text" id="botToken" placeholder="123456:ABC-DEF">
+                <div class="hint">For notifications. Get from @BotFather</div>
+            </div>
+
+            <div class="section-label">Binance <span class="optional-tag">Optional</span></div>
+            <div class="field">
+                <label for="binanceKey">API Key</label>
+                <input type="text" id="binanceKey">
+            </div>
+            <div class="field">
+                <label for="binanceSecret">Secret Key</label>
+                <input type="password" id="binanceSecret">
+            </div>
+
+            <div class="section-label">Channels</div>
+            <div class="field">
+                <label for="sourceChannels">Source Channels <span class="optional-tag">Optional</span></label>
+                <input type="text" id="sourceChannels" placeholder="channel_username1, channel_username2">
+                <div class="hint">Comma-separated channel usernames for trading signals</div>
+            </div>
+            <div class="field">
+                <label for="myChatId">My Chat ID <span class="optional-tag">Optional</span></label>
+                <input type="text" id="myChatId" placeholder="0">
+                <div class="hint">Your Telegram user ID for notifications</div>
+            </div>
+            <div class="field">
+                <label for="forwardingRules">Forwarding Rules <span class="optional-tag">Optional</span></label>
+                <input type="text" id="forwardingRules" placeholder="source:target1:target2,source2:target3">
+                <div class="hint">Format: source:target pairs, comma-separated</div>
+            </div>
+
+            <button class="btn" id="btnSaveConfig" onclick="saveConfig()">Save & Continue</button>
+            <div class="msg" id="msgConfig"></div>
+        </div>
+    </div>
+
+    <!-- Step 1: Phone Number -->
+    <div class="step" id="step1">
+        <div class="step-title">Telegram Login</div>
+        <div class="step-desc">Enter your phone number to receive a verification code.</div>
+        <div class="card">
+            <div class="field">
+                <label for="phone">Phone Number</label>
+                <input type="tel" id="phone" placeholder="+821012345678">
+                <div class="hint">Include country code (e.g., +82 for Korea)</div>
+            </div>
+            <button class="btn" id="btnSendCode" onclick="sendCode()">Send Code</button>
+            <div class="msg" id="msgPhone"></div>
+        </div>
+    </div>
+
+    <!-- Step 2: Verification Code -->
+    <div class="step" id="step2">
+        <div class="step-title">Enter Verification Code</div>
+        <div class="step-desc">Enter the code sent to your Telegram app.</div>
+        <div class="card">
+            <div class="field">
+                <label for="code">Verification Code</label>
+                <input type="text" id="code" placeholder="12345" autocomplete="one-time-code">
+            </div>
+            <button class="btn" id="btnVerify" onclick="verifyCode()">Verify</button>
+            <div class="msg" id="msgCode"></div>
+        </div>
+    </div>
+
+    <!-- Step 2FA -->
+    <div class="step" id="step2fa">
+        <div class="step-title">Two-Factor Authentication</div>
+        <div class="step-desc">Your account has 2FA enabled. Enter your password.</div>
+        <div class="card">
+            <div class="field">
+                <label for="password2fa">2FA Password</label>
+                <input type="password" id="password2fa">
+            </div>
+            <button class="btn" id="btn2fa" onclick="verify2FA()">Verify</button>
+            <div class="msg" id="msg2fa"></div>
+        </div>
+    </div>
+
+    <!-- Step Done -->
+    <div class="step" id="stepDone">
+        <div class="step-title">Setup Complete</div>
+        <div class="step-desc">Authentication successful. Redirecting to dashboard...</div>
+    </div>
+
+</div>
+
+<script>
+    let currentStep = 0;
+
+    function showStep(step) {
+        document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+        const stepEl = document.getElementById('step' + step);
+        if (stepEl) stepEl.classList.add('active');
+
+        // Update progress dots
+        for (let i = 0; i < 3; i++) {
+            const dot = document.getElementById('dot' + i);
+            dot.className = 'progress-dot';
+            if (i < step) dot.classList.add('done');
+            else if (i === step) dot.classList.add('current');
+        }
+    }
+
+    function showMsg(id, text, isError) {
+        const el = document.getElementById(id);
+        el.textContent = text;
+        el.className = 'msg ' + (isError ? 'error' : 'success');
+    }
+
+    async function checkStatus() {
+        try {
+            const res = await fetch('/api/auth/status');
+            const data = await res.json();
+
+            switch (data.state) {
+                case 'unconfigured':
+                    showStep(0);
+                    break;
+                case 'need_phone':
+                    showStep(1);
+                    break;
+                case 'code_sent':
+                    showStep(2);
+                    break;
+                case 'need_2fa':
+                    document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+                    document.getElementById('step2fa').classList.add('active');
+                    break;
+                case 'authenticated':
+                    document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+                    document.getElementById('stepDone').classList.add('active');
+                    setTimeout(() => { window.location.href = '/'; }, 1000);
+                    break;
+            }
+        } catch (e) {}
+    }
+
+    async function saveConfig() {
+        const btn = document.getElementById('btnSaveConfig');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        const payload = {
+            API_ID: document.getElementById('apiId').value.trim(),
+            API_HASH: document.getElementById('apiHash').value.trim(),
+            BOT_TOKEN: document.getElementById('botToken').value.trim(),
+            BINANCE_API_KEY: document.getElementById('binanceKey').value.trim(),
+            BINANCE_SECRET_KEY: document.getElementById('binanceSecret').value.trim(),
+            SOURCE_CHANNELS: document.getElementById('sourceChannels').value.trim(),
+            MY_CHAT_ID: document.getElementById('myChatId').value.trim(),
+            FORWARDING_RULES: document.getElementById('forwardingRules').value.trim(),
+        };
+
+        try {
+            const res = await fetch('/api/auth/save-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+
+            if (data.ok) {
+                showStep(1);
+            } else {
+                showMsg('msgConfig', data.error || 'Save failed', true);
+            }
+        } catch (e) {
+            showMsg('msgConfig', 'Network error', true);
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Save & Continue';
+    }
+
+    async function sendCode() {
+        const btn = document.getElementById('btnSendCode');
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+
+        try {
+            const res = await fetch('/api/auth/send-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: document.getElementById('phone').value.trim() }),
+            });
+            const data = await res.json();
+
+            if (data.ok) {
+                showStep(2);
+            } else {
+                showMsg('msgPhone', data.error || 'Failed to send code', true);
+            }
+        } catch (e) {
+            showMsg('msgPhone', 'Network error', true);
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Send Code';
+    }
+
+    async function verifyCode() {
+        const btn = document.getElementById('btnVerify');
+        btn.disabled = true;
+        btn.textContent = 'Verifying...';
+
+        try {
+            const res = await fetch('/api/auth/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: document.getElementById('code').value.trim() }),
+            });
+            const data = await res.json();
+
+            if (data.state === 'authenticated') {
+                document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+                document.getElementById('stepDone').classList.add('active');
+                setTimeout(() => { window.location.href = '/'; }, 1500);
+            } else if (data.need_2fa) {
+                document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+                document.getElementById('step2fa').classList.add('active');
+            } else {
+                showMsg('msgCode', data.error || 'Verification failed', true);
+            }
+        } catch (e) {
+            showMsg('msgCode', 'Network error', true);
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Verify';
+    }
+
+    async function verify2FA() {
+        const btn = document.getElementById('btn2fa');
+        btn.disabled = true;
+        btn.textContent = 'Verifying...';
+
+        try {
+            const res = await fetch('/api/auth/2fa', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: document.getElementById('password2fa').value }),
+            });
+            const data = await res.json();
+
+            if (data.state === 'authenticated') {
+                document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+                document.getElementById('stepDone').classList.add('active');
+                setTimeout(() => { window.location.href = '/'; }, 1500);
+            } else {
+                showMsg('msg2fa', data.error || '2FA verification failed', true);
+            }
+        } catch (e) {
+            showMsg('msg2fa', 'Network error', true);
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Verify';
+    }
+
+    // Handle Enter key for all input fields
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            const activeStep = document.querySelector('.step.active');
+            if (activeStep) {
+                const btn = activeStep.querySelector('.btn');
+                if (btn && !btn.disabled) btn.click();
+            }
+        }
+    });
+
+    checkStatus();
+</script>
+
+</body>
+</html>
