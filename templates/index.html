@@ -809,6 +809,41 @@
             </div>
         </div>
 
+        <!-- Performance Dashboard -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">Performance</div>
+                <div class="filter-tabs" id="perfPeriodTabs">
+                    <button class="filter-tab" data-period="today" onclick="setPerfPeriod('today',this)">Today</button>
+                    <button class="filter-tab" data-period="7d" onclick="setPerfPeriod('7d',this)">7D</button>
+                    <button class="filter-tab" data-period="30d" onclick="setPerfPeriod('30d',this)">30D</button>
+                    <button class="filter-tab active" data-period="lifetime" onclick="setPerfPeriod('lifetime',this)">Lifetime</button>
+                </div>
+            </div>
+            <div class="trade-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Channel</th>
+                            <th>Trades</th>
+                            <th>Win Rate</th>
+                            <th>Total PnL</th>
+                            <th>Return %</th>
+                            <th>Gross Profit</th>
+                            <th>Gross Loss</th>
+                            <th>Avg PnL</th>
+                            <th>Avg Win</th>
+                            <th>Avg Loss</th>
+                            <th>TP1 Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody id="perfTableBody">
+                        <tr><td colspan="11" style="text-align:center;color:var(--text-secondary);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Active Positions -->
         <div class="section" id="ovActiveSection" style="display:none;">
             <div class="section-header">
@@ -926,23 +961,57 @@
         <div class="section">
             <div class="section-header">
                 <div class="section-title">Trade History</div>
-                <div class="filter-tabs">
-                    <button class="filter-tab active" data-filter="all" onclick="setFilter('all', this)">All</button>
-                    <button class="filter-tab" data-filter="open" onclick="setFilter('open', this)">Open</button>
-                    <button class="filter-tab" data-filter="closed" onclick="setFilter('closed', this)">Closed</button>
-                    <button class="filter-tab" data-filter="pending" onclick="setFilter('pending', this)">Pending</button>
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <select id="channelFilter" onchange="setChannelFilter(this.value)" style="
+                        padding:6px 10px;font-size:12px;font-weight:600;font-family:var(--font-body);
+                        border:1px solid var(--divider);background:var(--white);color:var(--text-primary);
+                        cursor:pointer;min-width:140px;
+                    ">
+                        <option value="all">All Channels</option>
+                    </select>
+                    <div class="filter-tabs">
+                        <button class="filter-tab active" data-filter="all" onclick="setFilter('all', this)">All</button>
+                        <button class="filter-tab" data-filter="open" onclick="setFilter('open', this)">Open</button>
+                        <button class="filter-tab" data-filter="closed" onclick="setFilter('closed', this)">Closed</button>
+                        <button class="filter-tab" data-filter="pending" onclick="setFilter('pending', this)">Pending</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Channel Performance Summary -->
+            <div id="channelStats" style="display:none;margin-bottom:12px;">
+                <div class="stats-grid cols-5">
+                    <div class="stat-card">
+                        <div class="stat-value" id="chStatTrades">-</div>
+                        <div class="stat-label">Trades</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="chStatWinRate">-</div>
+                        <div class="stat-label">Win Rate</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="chStatPnl">-</div>
+                        <div class="stat-label">Total PnL</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="chStatTodayPnl">-</div>
+                        <div class="stat-label">Today PnL</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="chStatOpen">-</div>
+                        <div class="stat-label">Open / Today</div>
+                    </div>
                 </div>
             </div>
             <div class="trade-table-wrap">
                 <table>
                     <thead>
                         <tr>
-                            <th>Time</th><th>Pair</th><th>Side</th><th>Entry</th><th>Filled</th>
+                            <th>Time</th><th>Channel</th><th>Pair</th><th>Side</th><th>Entry</th><th>Filled</th>
                             <th>Exit</th><th>Qty</th><th>PnL %</th><th>PnL USDT</th><th>TP1</th><th>Result</th>
                         </tr>
                     </thead>
                     <tbody id="tradeBody">
-                        <tr><td colspan="11"><div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Loading trades...</div></td></tr>
+                        <tr><td colspan="12"><div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Loading trades...</div></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -979,6 +1048,20 @@
                             <option value="LONG">LONG (default)</option>
                             <option value="SHORT">SHORT</option>
                         </select>
+                    </div>
+                    <div>
+                        <label for="chExchange">Exchange</label>
+                        <select id="chExchange">
+                            <option value="binance">Binance</option>
+                            <option value="okx">OKX</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div>
+                        <label for="chTradeAmount">Trade Amount (USDT)</label>
+                        <input type="number" id="chTradeAmount" step="1" min="0" value="0">
+                        <div class="template-hint">0 = use global setting</div>
                     </div>
                     <div></div>
                 </div>
@@ -1064,6 +1147,8 @@
 <script>
     let currentTab = 'overview';
     let currentFilter = 'all';
+    let currentChannel = 'all';
+    let currentPerfPeriod = 'lifetime';
 
     // ── Utility ─────────────────────────────────────
     function escapeHtml(text) {
@@ -1117,23 +1202,86 @@
         document.getElementById('tab-' + tabName).classList.add('active');
         document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
         refresh();
+        if (tabName === 'overview') refreshPerformance();
+    }
+
+    function setPerfPeriod(period, btn) {
+        currentPerfPeriod = period;
+        document.querySelectorAll('#perfPeriodTabs .filter-tab').forEach(t => t.classList.remove('active'));
+        btn.classList.add('active');
+        refreshPerformance();
+    }
+
+    function perfCell(val, fmt) {
+        if (fmt === 'pnl') return `<td class="${pnlClass(val)}">${pnlSign(val)}</td>`;
+        if (fmt === 'pct') return `<td class="${pnlClass(val)}">${pnlSign(val)}%</td>`;
+        if (fmt === 'profit') return `<td class="pnl-positive">${val > 0 ? '+' + val : val}</td>`;
+        if (fmt === 'loss') return `<td class="pnl-negative">${val}</td>`;
+        if (fmt === 'rate') return `<td>${val}%</td>`;
+        return `<td>${val}</td>`;
+    }
+
+    function perfRow(r, isTotal) {
+        const ct = r.closed_trades;
+        const tag = isTotal ? 'font-weight:700;' : '';
+        const name = escapeHtml(r.channel);
+        return `<tr style="${tag}">
+            <td>${name}</td>
+            ${perfCell(ct, '')}
+            ${perfCell(ct > 0 ? r.win_rate : '-', ct > 0 ? 'rate' : '')}
+            ${perfCell(ct > 0 ? r.total_pnl : '-', ct > 0 ? 'pnl' : '')}
+            ${perfCell(ct > 0 ? r.cumulative_return_pct : '-', ct > 0 ? 'pct' : '')}
+            ${perfCell(ct > 0 ? r.gross_profit : '-', ct > 0 ? 'profit' : '')}
+            ${perfCell(ct > 0 ? r.gross_loss : '-', ct > 0 ? 'loss' : '')}
+            ${perfCell(ct > 0 ? r.avg_pnl : '-', ct > 0 ? 'pnl' : '')}
+            ${perfCell(r.wins > 0 ? r.avg_win : '-', r.wins > 0 ? 'profit' : '')}
+            ${perfCell(r.losses > 0 ? r.avg_loss : '-', r.losses > 0 ? 'loss' : '')}
+            ${perfCell(ct > 0 ? r.tp1_hit_rate : '-', ct > 0 ? 'rate' : '')}
+        </tr>`;
+    }
+
+    async function refreshPerformance() {
+        try {
+            const data = await fetch('/api/trading/performance?period=' + currentPerfPeriod).then(r => r.json());
+            if (!data.total) return;
+            const tbody = document.getElementById('perfTableBody');
+            let html = '';
+            if (data.rows && data.rows.length > 0) {
+                data.rows.forEach(r => { html += perfRow(r, false); });
+                if (data.rows.length > 1) {
+                    html += perfRow(data.total, true);
+                }
+            } else {
+                html = '<tr><td colspan="11" style="text-align:center;color:var(--text-secondary);">No closed trades</td></tr>';
+            }
+            tbody.innerHTML = html;
+        } catch (e) {}
     }
 
     function setFilter(filter, btn) {
         currentFilter = filter;
-        document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+        btn.parentElement.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
         btn.classList.add('active');
+        refresh();
+    }
+
+    function setChannelFilter(channel) {
+        currentChannel = channel;
         refresh();
     }
 
     // ── Data Refresh ────────────────────────────────
     async function refresh() {
         try {
-            const [fwdStatus, fwdMessages, trStats, trades] = await Promise.all([
+            const chParam = currentChannel !== 'all' ? '&channel=' + encodeURIComponent(currentChannel) : '';
+            const [fwdStatus, fwdMessages, trStats, trades, chStats] = await Promise.all([
                 fetch('/api/forwarder/status').then(r => r.json()),
                 fetch('/api/forwarder/messages').then(r => r.json()),
                 fetch('/api/trading/stats').then(r => r.json()),
-                fetch('/api/trading/trades?status=' + currentFilter + '&limit=100').then(r => r.json()),
+                fetch('/api/trading/trades?status=' + currentFilter + '&limit=100' + chParam).then(r => r.json()),
+                currentChannel !== 'all'
+                    ? fetch('/api/trading/stats?channel=' + encodeURIComponent(currentChannel)).then(r => r.json())
+                    : Promise.resolve(null),
             ]);
 
             // Update status dot
@@ -1186,6 +1334,23 @@
 
             renderActivePositions('tr', trStats.active_trades || []);
             renderTrades(trades.trades || []);
+
+            // Channel-specific stats
+            const chStatsEl = document.getElementById('channelStats');
+            if (chStats) {
+                chStatsEl.style.display = 'block';
+                document.getElementById('chStatTrades').textContent = chStats.total_trades || 0;
+                document.getElementById('chStatWinRate').textContent = chStats.closed_trades > 0 ? (chStats.win_rate || 0) + '%' : '-';
+                const chPnlEl = document.getElementById('chStatPnl');
+                chPnlEl.textContent = pnlSign(chStats.total_pnl);
+                chPnlEl.className = 'stat-value ' + pnlClass(chStats.total_pnl);
+                const chTodayEl = document.getElementById('chStatTodayPnl');
+                chTodayEl.textContent = pnlSign(chStats.today_pnl);
+                chTodayEl.className = 'stat-value ' + pnlClass(chStats.today_pnl);
+                document.getElementById('chStatOpen').textContent = (chStats.open_count || 0) + ' / ' + (chStats.today_count || 0);
+            } else {
+                chStatsEl.style.display = 'none';
+            }
 
         } catch (e) {
             document.getElementById('statusDot').classList.add('disconnected');
@@ -1292,12 +1457,13 @@
     function renderTrades(trades) {
         const body = document.getElementById('tradeBody');
         if (!trades.length) {
-            body.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>No trades found</div></td></tr>`;
+            body.innerHTML = `<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>No trades found</div></td></tr>`;
             return;
         }
         body.innerHTML = trades.map(t => `
             <tr>
                 <td>${formatTime(t.created_at)}</td>
+                <td style="font-size:11px;color:var(--text-secondary);max-width:100px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(t.channel_name || '')}">${escapeHtml(t.channel_name || '-')}</td>
                 <td><strong>${escapeHtml(t.ticker)}/USDT</strong></td>
                 <td><span class="side-tag ${t.side.toLowerCase()}">${t.side}</span></td>
                 <td>${formatPrice(t.entry_price)}</td>
@@ -1472,11 +1638,16 @@
             const sideLC = (ch.default_side || 'LONG').toLowerCase();
             const enabledClass = ch.enabled ? '' : ' disabled';
             const templatePreview = escapeHtml(ch.template).replace(/\{(\w+)\}/g, '<code>{$1}</code>');
+            const exName = (ch.exchange || 'binance').toUpperCase();
+            const exBg = ch.exchange === 'okx' ? '#000' : '#F0B90B';
+            const exColor = ch.exchange === 'okx' ? '#fff' : '#000';
             return `<div class="channel-card${enabledClass}">
                 <div class="channel-info">
                     <div>
                         <span class="channel-name">${escapeHtml(ch.channel_name || ch.channel_id)}</span>
                         <span class="channel-side-badge ${sideLC}">${ch.default_side || 'LONG'}</span>
+                        <span style="font-size:10px;font-weight:700;letter-spacing:0.06em;padding:2px 8px;margin-left:6px;background:${exBg};color:${exColor};">${exName}</span>
+                        ${ch.trade_amount > 0 ? '<span style="font-size:11px;color:var(--text-secondary);margin-left:8px;">' + ch.trade_amount + ' USDT</span>' : ''}
                         ${!ch.enabled ? '<span style="font-size:11px;color:var(--text-tertiary);margin-left:8px;">DISABLED</span>' : ''}
                     </div>
                     <div class="channel-id">${escapeHtml(ch.channel_id)}</div>
@@ -1499,6 +1670,8 @@
             document.getElementById('chChannelName').value = '';
             document.getElementById('chTemplate').value = '';
             document.getElementById('chDefaultSide').value = 'LONG';
+            document.getElementById('chExchange').value = 'binance';
+            document.getElementById('chTradeAmount').value = '0';
             document.getElementById('chSample').value = '';
             document.getElementById('testResult').innerHTML = '';
         }
@@ -1519,6 +1692,8 @@
         document.getElementById('chChannelName').value = ch.channel_name || '';
         document.getElementById('chTemplate').value = ch.template;
         document.getElementById('chDefaultSide').value = ch.default_side || 'LONG';
+        document.getElementById('chExchange').value = ch.exchange || 'binance';
+        document.getElementById('chTradeAmount').value = ch.trade_amount || 0;
     }
 
     async function saveChannel() {
@@ -1528,6 +1703,8 @@
             channel_name: document.getElementById('chChannelName').value.trim(),
             template: document.getElementById('chTemplate').value.trim(),
             default_side: document.getElementById('chDefaultSide').value,
+            exchange: document.getElementById('chExchange').value,
+            trade_amount: parseFloat(document.getElementById('chTradeAmount').value) || 0,
         };
 
         if (!payload.channel_id || !payload.template) {
@@ -1636,11 +1813,36 @@
         setTimeout(() => { el.textContent = ''; }, 4000);
     }
 
+    // ── Trade Channel Filter ───────────────────────
+    async function loadTradeChannels() {
+        try {
+            const data = await fetch('/api/trading/trade-channels').then(r => r.json());
+            const select = document.getElementById('channelFilter');
+            const channels = data.channels || [];
+            // Preserve current selection
+            const prev = select.value;
+            select.innerHTML = '<option value="all">All Channels</option>';
+            channels.forEach(ch => {
+                const opt = document.createElement('option');
+                opt.value = ch;
+                opt.textContent = ch;
+                select.appendChild(opt);
+            });
+            if (prev && channels.includes(prev)) {
+                select.value = prev;
+            }
+        } catch (e) {}
+    }
+
     // ── Init ────────────────────────────────────────
     loadSettings();
     loadChannels();
+    loadTradeChannels();
     refresh();
+    refreshPerformance();
     setInterval(refresh, 3000);
+    setInterval(refreshPerformance, 30000);
+    setInterval(loadTradeChannels, 10000);
 </script>
 
 </body>

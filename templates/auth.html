@@ -260,6 +260,21 @@
                 <input type="password" id="binanceSecret">
             </div>
 
+            <div class="section-label">OKX <span class="optional-tag">Optional</span></div>
+            <div class="field">
+                <label for="okxKey">API Key</label>
+                <input type="text" id="okxKey">
+            </div>
+            <div class="field">
+                <label for="okxSecret">Secret Key</label>
+                <input type="password" id="okxSecret">
+            </div>
+            <div class="field">
+                <label for="okxPassphrase">Passphrase</label>
+                <input type="password" id="okxPassphrase">
+                <div class="hint">OKX API 접속에 필요한 패스프레이즈</div>
+            </div>
+
             <div class="section-label">Channels</div>
             <div class="field">
                 <label for="sourceChannels">Source Channels <span class="optional-tag">Optional</span></label>
@@ -356,14 +371,44 @@
         el.className = 'msg ' + (isError ? 'error' : 'success');
     }
 
+    async function loadSavedConfig() {
+        try {
+            const res = await fetch('/api/auth/config');
+            const cfg = await res.json();
+
+            if (cfg.API_ID) document.getElementById('apiId').value = cfg.API_ID;
+            if (cfg.API_HASH) document.getElementById('apiHash').value = cfg.API_HASH;
+            if (cfg.BOT_TOKEN) document.getElementById('botToken').value = cfg.BOT_TOKEN;
+            if (cfg.BINANCE_API_KEY) document.getElementById('binanceKey').value = cfg.BINANCE_API_KEY;
+            if (cfg.BINANCE_SECRET_KEY) document.getElementById('binanceSecret').value = cfg.BINANCE_SECRET_KEY;
+            if (cfg.OKX_API_KEY) document.getElementById('okxKey').value = cfg.OKX_API_KEY;
+            if (cfg.OKX_SECRET_KEY) document.getElementById('okxSecret').value = cfg.OKX_SECRET_KEY;
+            if (cfg.OKX_PASSPHRASE) document.getElementById('okxPassphrase').value = cfg.OKX_PASSPHRASE;
+            if (cfg.SOURCE_CHANNELS) document.getElementById('sourceChannels').value = cfg.SOURCE_CHANNELS;
+            if (cfg.MY_CHAT_ID && cfg.MY_CHAT_ID !== '0') document.getElementById('myChatId').value = cfg.MY_CHAT_ID;
+            if (cfg.FORWARDING_RULES) document.getElementById('forwardingRules').value = cfg.FORWARDING_RULES;
+
+            return cfg;
+        } catch (e) {
+            return {};
+        }
+    }
+
     async function checkStatus() {
         try {
-            const res = await fetch('/api/auth/status');
-            const data = await res.json();
+            const [statusRes, cfg] = await Promise.all([
+                fetch('/api/auth/status').then(r => r.json()),
+                loadSavedConfig(),
+            ]);
 
-            switch (data.state) {
+            switch (statusRes.state) {
                 case 'unconfigured':
-                    showStep(0);
+                    // Config already exists but session expired — skip to phone step
+                    if (cfg.has_telegram_config) {
+                        showStep(1);
+                    } else {
+                        showStep(0);
+                    }
                     break;
                 case 'need_phone':
                     showStep(1);
@@ -395,6 +440,9 @@
             BOT_TOKEN: document.getElementById('botToken').value.trim(),
             BINANCE_API_KEY: document.getElementById('binanceKey').value.trim(),
             BINANCE_SECRET_KEY: document.getElementById('binanceSecret').value.trim(),
+            OKX_API_KEY: document.getElementById('okxKey').value.trim(),
+            OKX_SECRET_KEY: document.getElementById('okxSecret').value.trim(),
+            OKX_PASSPHRASE: document.getElementById('okxPassphrase').value.trim(),
             SOURCE_CHANNELS: document.getElementById('sourceChannels').value.trim(),
             MY_CHAT_ID: document.getElementById('myChatId').value.trim(),
             FORWARDING_RULES: document.getElementById('forwardingRules').value.trim(),

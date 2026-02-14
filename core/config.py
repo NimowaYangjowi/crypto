@@ -20,9 +20,13 @@ class AppConfig:
     target_id: str = ""
     remove_forward_signature: bool = False
 
-    # Trading
+    # Trading — Binance
     binance_api_key: str = ""
     binance_secret_key: str = ""
+    # Trading — OKX
+    okx_api_key: str = ""
+    okx_secret_key: str = ""
+    okx_passphrase: str = ""
     source_channels: list = field(default_factory=list)
     my_chat_id: int = 0
     trade_amount: float = 100.0
@@ -44,7 +48,9 @@ class AppConfig:
 
     @property
     def has_trading_config(self):
-        return bool(self.binance_api_key and self.binance_secret_key and self.source_channels)
+        has_binance = bool(self.binance_api_key and self.binance_secret_key)
+        has_okx = bool(self.okx_api_key and self.okx_secret_key and self.okx_passphrase)
+        return (has_binance or has_okx) and bool(self.source_channels)
 
 
 def load_config(data_dir: Path) -> AppConfig:
@@ -68,6 +74,9 @@ def load_config(data_dir: Path) -> AppConfig:
         remove_forward_signature=os.getenv("REMOVE_FORWARD_SIGNATURE", "").lower() in ("1", "true", "yes"),
         binance_api_key=os.getenv("BINANCE_API_KEY", ""),
         binance_secret_key=os.getenv("BINANCE_SECRET_KEY", ""),
+        okx_api_key=os.getenv("OKX_API_KEY", ""),
+        okx_secret_key=os.getenv("OKX_SECRET_KEY", ""),
+        okx_passphrase=os.getenv("OKX_PASSPHRASE", ""),
         source_channels=[c.strip() for c in source_channels_raw.split(",") if c.strip()],
         my_chat_id=int(os.getenv("MY_CHAT_ID", "0")),
         trade_amount=float(os.getenv("TRADE_AMOUNT", "100")),

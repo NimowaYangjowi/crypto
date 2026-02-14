@@ -6,6 +6,7 @@ Single process, single TelegramClient, unified dashboard.
 
 import asyncio
 import logging
+import os
 import sys
 import webbrowser
 from logging.handlers import RotatingFileHandler
@@ -85,8 +86,9 @@ class Application:
         auth_state = await self.auth_flow.check_status()
         logger.info(f"Auth state: {auth_state}")
 
-        # Open browser
-        webbrowser.open(f"http://localhost:{port}")
+        # Open browser (skip when launched from menu bar app)
+        if not os.environ.get("TGF_MENUBAR"):
+            webbrowser.open(f"http://localhost:{port}")
 
         if auth_state == "authenticated":
             await self.on_authenticated()
@@ -129,9 +131,43 @@ class Application:
         try:
             await self.client.run_until_disconnected()
         except Exception as e:
+            error_str = str(e).lower()
+            is_auth_error = any(kw in error_str for kw in [
+                "authkey", "not registered", "unauthorized", "auth_key",
+            ])
+            if is_auth_error:
+                logger.warning(f"Session expired: {e}. Switching to re-auth mode.")
+                await self._reset_to_auth()
+                return
             logger.error(f"Client disconnected: {e}")
         finally:
-            self._shutdown_event.set()
+            if not self._shutdown_event.is_set():
+                self._shutdown_event.set()
+
+    async def _reset_to_auth(self):
+        """Reset to authentication mode when session expires."""
+        logger = logging.getLogger("app")
+
+        # Clean up modules
+        if self.trader:
+            await self.trader.shutdown()
+            self.trader = None
+        self.forwarder = None
+
+        # Delete invalid session files
+        for suffix in ("", ".session"):
+            session_file = self.data_dir / f"user_session{suffix}"
+            if session_file.exists():
+                session_file.unlink()
+                logger.info(f"Deleted invalid session: {session_file}")
+
+        # Recreate client and auth flow
+        session_path = str(self.data_dir / "user_session")
+        self.client = TelegramClient(session_path, self.config.api_id, self.config.api_hash)
+        self.auth_flow = TelegramAuthFlow(self.client, self.config, self.data_dir)
+        self.auth_flow.state = "need_phone"
+
+        logger.info("Ready for re-authentication via dashboard.")
 
     async def shutdown(self):
         """Graceful shutdown."""

@@ -48,6 +48,7 @@ class TelegramAuthFlow:
         field_map = [
             "API_ID", "API_HASH", "BOT_TOKEN",
             "BINANCE_API_KEY", "BINANCE_SECRET_KEY",
+            "OKX_API_KEY", "OKX_SECRET_KEY", "OKX_PASSPHRASE",
             "SOURCE_CHANNELS", "MY_CHAT_ID",
             "FORWARDING_RULES",
             "TRADE_AMOUNT", "SELL_BLOCKED", "MAX_CONCURRENT",

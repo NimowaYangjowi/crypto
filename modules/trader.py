@@ -1,4 +1,4 @@
-"""Trader module — monitors Telegram signals and executes trades on Binance."""
+"""Trader module — monitors Telegram signals and executes trades on Binance/OKX."""
 
 import asyncio
 import logging
@@ -13,7 +13,7 @@ from core.config import AppConfig
 from core.database import (
     db_insert_trade, db_update_trade, db_get_trades, db_get_stats,
     db_get_today_pnl, db_load_settings, db_save_settings,
-    db_get_channel_formats,
+    db_get_channel_formats, db_get_performance_stats, db_get_performance_table,
 )
 
 logger = logging.getLogger("trader")
@@ -54,7 +54,7 @@ def parse_signal(text):
 
 # ── Template System ──────────────────────────────────────
 
-PLACEHOLDER_RE = re.compile(r'\{(ticker|side|entry|tp1|tp2|tp3|sl)\}')
+PLACEHOLDER_RE = re.compile(r'\{(ticker|side|entry|tp1|tp2|tp3|sl|leverage|_\?|_)\}')
 
 CAPTURE_MAP = {
     'ticker': r'(\w+)',
@@ -64,6 +64,9 @@ CAPTURE_MAP = {
     'tp2': r'([\d,.]+)',
     'tp3': r'([\d,.]+)',
     'sl': r'([\d,.]+)',
+    'leverage': r'(\d+)',
+    '_': r'(?:\S+)',   # non-capturing skip (required)
+    '_?': r'(?:.*?)',  # non-capturing skip (optional, lazy)
 }
 
 WS_MARKER = '\x00WS\x00'
@@ -77,8 +80,11 @@ def compile_template(template: str):
 
     for i, part in enumerate(parts):
         if i % 2 == 1:  # field name
-            fields.append(part)
-            regex_str += CAPTURE_MAP[part]
+            if part in ('_', '_?'):
+                regex_str += CAPTURE_MAP[part]  # non-capturing skip
+            else:
+                fields.append(part)
+                regex_str += CAPTURE_MAP[part]
         else:  # literal text
             cleaned = re.sub(r'\s+', WS_MARKER, part)
             escaped = re.escape(cleaned)
@@ -102,6 +108,11 @@ def parse_with_template(text, compiled_regex, fields, default_side='LONG'):
             result['ticker'] = value.upper()
         elif field == 'side':
             result['side'] = value.upper()
+        elif field == 'leverage':
+            try:
+                result['leverage'] = int(value)
+            except ValueError:
+                result['leverage'] = 1
         else:
             try:
                 result[field] = float(value.replace(',', ''))
@@ -176,17 +187,61 @@ class TraderModule:
                      f"MAX_CONCURRENT={self.max_concurrent}, DAILY_LOSS_LIMIT={self.daily_loss_limit}, "
                      f"ENTRY_TIMEOUT={self.entry_timeout}")
 
-    def _create_exchange(self, futures=False):
-        config = {
-            "apiKey": self.config.binance_api_key,
-            "secret": self.config.binance_secret_key,
-            "enableRateLimit": True,
-        }
-        if futures:
-            config["options"] = {"defaultType": "future"}
-        exchange = ccxt.binance(config)
+    def _create_exchange(self, futures=False, exchange_name="binance"):
+        if exchange_name == "okx":
+            config = {
+                "apiKey": self.config.okx_api_key,
+                "secret": self.config.okx_secret_key,
+                "password": self.config.okx_passphrase,
+                "enableRateLimit": True,
+            }
+            if futures:
+                config["options"] = {"defaultType": "swap"}
+            exchange = ccxt.okx(config)
+        else:
+            config = {
+                "apiKey": self.config.binance_api_key,
+                "secret": self.config.binance_secret_key,
+                "enableRateLimit": True,
+            }
+            if futures:
+                config["options"] = {"defaultType": "future"}
+            exchange = ccxt.binance(config)
         exchange.load_markets()
         return exchange
+
+    def _make_symbol(self, ticker, futures=False, exchange_name="binance"):
+        if exchange_name == "okx" and futures:
+            return f"{ticker}/USDT:USDT"
+        return f"{ticker}/USDT"
+
+    def _create_sl_order(self, exchange, exchange_name, symbol, side, qty, price, futures=False):
+        """Create a stop-loss order appropriate to the exchange."""
+        close_side = "sell" if side == "LONG" else "buy"
+        if exchange_name == "okx":
+            params = {"triggerPrice": str(price), "triggerType": "last", "reduceOnly": True}
+            return exchange.create_order(symbol, "trigger", close_side, qty, price, params)
+        else:
+            if futures:
+                return exchange.create_order(symbol, "stop_market", close_side, qty, None, {"stopPrice": price, "reduceOnly": True})
+            elif side == "LONG":
+                return exchange.create_order(symbol, "stop_loss_limit", close_side, qty, price, {"stopPrice": price})
+            else:
+                return exchange.create_order(symbol, "stop_market", close_side, qty, None, {"stopPrice": price, "reduceOnly": True})
+
+    def _create_tp_order(self, exchange, exchange_name, symbol, side, qty, price, futures=False):
+        """Create a take-profit order appropriate to the exchange."""
+        close_side = "sell" if side == "LONG" else "buy"
+        if exchange_name == "okx":
+            params = {"triggerPrice": str(price), "triggerType": "last", "reduceOnly": True}
+            return exchange.create_order(symbol, "trigger", close_side, qty, price, params)
+        else:
+            if futures:
+                return exchange.create_order(symbol, "take_profit_market", close_side, qty, None, {"stopPrice": price, "reduceOnly": True})
+            elif side == "LONG":
+                return exchange.create_limit_sell_order(symbol, qty, price)
+            else:
+                return exchange.create_order(symbol, "take_profit_market", close_side, qty, None, {"stopPrice": price, "reduceOnly": True})
 
     async def _notify(self, message):
         if not self.config.bot_token or not self.config.my_chat_id:
@@ -199,12 +254,18 @@ class TraderModule:
         except Exception as e:
             logger.error(f"Failed to notify: {e}")
 
-    async def _fetch_current_price(self, ticker):
-        """Fetch current price from Binance public API."""
-        url = f"https://api.binance.com/api/v3/ticker/price?symbol={ticker}USDT"
-        resp = await self._http_client.get(url)
-        data = resp.json()
-        return float(data['price'])
+    async def _fetch_current_price(self, ticker, exchange_name="binance"):
+        """Fetch current price from exchange public API."""
+        if exchange_name == "okx":
+            url = f"https://www.okx.com/api/v5/market/ticker?instId={ticker}-USDT"
+            resp = await self._http_client.get(url)
+            data = resp.json()
+            return float(data["data"][0]["last"])
+        else:
+            url = f"https://api.binance.com/api/v3/ticker/price?symbol={ticker}USDT"
+            resp = await self._http_client.get(url)
+            data = resp.json()
+            return float(data['price'])
 
     def _check_daily_reset(self):
         today = datetime.now().date()
@@ -221,19 +282,30 @@ class TraderModule:
 
     async def _execute_spot_long(self, signal):
         ticker = signal["ticker"]
-        symbol = f"{ticker}/USDT"
+        exchange_name = signal.get("exchange_name", "binance")
+        symbol = self._make_symbol(ticker, futures=False, exchange_name=exchange_name)
         entry = signal["entry"]
         tp1, tp3, sl = signal["tp1"], signal["tp3"], signal["sl"]
+        trade_amount = signal.get("trade_amount", self.trade_amount)
+        channel_name = signal.get("channel_name", "")
         trade_id = None
+        ex_label = exchange_name.upper()
 
         try:
-            exchange = self._create_exchange(futures=False)
+            if exchange_name == "okx" and not self.config.okx_api_key:
+                await self._notify(f"⚠️ OKX API 키가 설정되지 않았습니다. {ticker} 거래 불가.")
+                return
+            if exchange_name == "binance" and not self.config.binance_api_key:
+                await self._notify(f"⚠️ Binance API 키가 설정되지 않았습니다. {ticker} 거래 불가.")
+                return
+
+            exchange = self._create_exchange(futures=False, exchange_name=exchange_name)
             market = exchange.market(symbol)
-            qty = round(self.trade_amount / entry, int(market["precision"]["amount"]))
+            qty = round(trade_amount / entry, int(market["precision"]["amount"]))
 
             trade_id = db_insert_trade(
-                ticker, "LONG", entry, qty, self.trade_amount,
-                signal["tp1"], signal["tp2"], signal["tp3"], sl,
+                ticker, "LONG", entry, qty, trade_amount,
+                signal["tp1"], signal["tp2"], signal["tp3"], sl, channel_name,
             )
 
             is_market = signal.get("market_order", False)
@@ -248,7 +320,7 @@ class TraderModule:
                 await self._notify(
                     f"✅ {ticker} LONG 시장가 체결\n"
                     f"체결가: {avg_price} | SL: {sl} | TP3: {tp3}\n"
-                    f"수량: {filled_qty} | 투입: ~{self.trade_amount} USDT"
+                    f"수량: {filled_qty} | 투입: ~{trade_amount} USDT"
                 )
             else:
                 order = exchange.create_limit_buy_order(symbol, qty, entry)
@@ -258,7 +330,7 @@ class TraderModule:
                 await self._notify(
                     f"✅ {ticker} LONG 주문 접수\n"
                     f"진입: {entry} | SL: {sl} | TP3: {tp3}\n"
-                    f"수량: {qty} | 투입: ~{self.trade_amount} USDT"
+                    f"수량: {qty} | 투입: ~{trade_amount} USDT"
                 )
 
                 wait_start = time.time()
@@ -290,9 +362,9 @@ class TraderModule:
                         return
                     await asyncio.sleep(5)
 
-            sl_order = exchange.create_order(symbol, "stop_loss_limit", "sell", filled_qty, sl, {"stopPrice": sl})
+            sl_order = self._create_sl_order(exchange, exchange_name, symbol, "LONG", filled_qty, sl)
             sl_order_id = sl_order["id"]
-            tp_order = exchange.create_limit_sell_order(symbol, filled_qty, tp3)
+            tp_order = self._create_tp_order(exchange, exchange_name, symbol, "LONG", filled_qty, tp3)
             tp_order_id = tp_order["id"]
             logger.info(f"[SPOT LONG] {symbol} SL: {sl_order_id} @ {sl}, TP3: {tp_order_id} @ {tp3}")
 
@@ -306,10 +378,7 @@ class TraderModule:
                         logger.info(f"[SPOT LONG] {symbol} TP1 reached ({price}). Moving SL to {avg_price}")
                         try:
                             exchange.cancel_order(sl_order_id, symbol)
-                            sl_order = exchange.create_order(
-                                symbol, "stop_loss_limit", "sell", filled_qty, avg_price,
-                                {"stopPrice": avg_price}
-                            )
+                            sl_order = self._create_sl_order(exchange, exchange_name, symbol, "LONG", filled_qty, avg_price)
                             sl_order_id = sl_order["id"]
                             sl_moved = True
                             db_update_trade(trade_id, tp1_hit=1, sl_moved=1)
@@ -376,28 +445,211 @@ class TraderModule:
             logger.error(f"[SPOT LONG] {symbol} error: {e}")
             await self._notify(f"⚠️ {ticker} LONG 에러: {e}")
 
-    async def _execute_futures_short(self, signal):
+    async def _execute_futures_long(self, signal):
         ticker = signal["ticker"]
-        symbol = f"{ticker}/USDT"
+        exchange_name = signal.get("exchange_name", "binance")
+        symbol = self._make_symbol(ticker, futures=True, exchange_name=exchange_name)
         entry = signal["entry"]
         tp1, tp3, sl = signal["tp1"], signal["tp3"], signal["sl"]
+        leverage = signal.get("leverage", 1)
+        trade_amount = signal.get("trade_amount", self.trade_amount)
+        channel_name = signal.get("channel_name", "")
         trade_id = None
 
         try:
-            exchange = self._create_exchange(futures=True)
+            if exchange_name == "okx" and not self.config.okx_api_key:
+                await self._notify(f"⚠️ OKX API 키가 설정되지 않았습니다. {ticker} 거래 불가.")
+                return
+            if exchange_name == "binance" and not self.config.binance_api_key:
+                await self._notify(f"⚠️ Binance API 키가 설정되지 않았습니다. {ticker} 거래 불가.")
+                return
+
+            exchange = self._create_exchange(futures=True, exchange_name=exchange_name)
             market = exchange.market(symbol)
-            qty = round(self.trade_amount / entry, int(market["precision"]["amount"]))
+            notional = trade_amount * leverage
+            qty = round(notional / entry, int(market["precision"]["amount"]))
 
             trade_id = db_insert_trade(
-                ticker, "SHORT", entry, qty, self.trade_amount,
-                signal["tp1"], signal["tp2"], signal["tp3"], sl,
+                ticker, "LONG", entry, qty, trade_amount,
+                signal["tp1"], signal["tp2"], signal["tp3"], sl, channel_name,
             )
 
             try:
-                exchange.set_leverage(1, symbol)
+                exchange.set_leverage(leverage, symbol)
                 exchange.set_margin_mode("isolated", symbol)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[FUTURES LONG] {symbol} set_leverage/margin_mode: {e}")
+
+            is_market = signal.get("market_order", False)
+
+            if is_market:
+                order = exchange.create_market_buy_order(symbol, qty)
+                filled_qty = order["filled"]
+                avg_price = order["average"] or order.get("price") or entry
+                logger.info(f"[FUTURES LONG] {symbol} MARKET FILLED: {filled_qty} @ {avg_price}")
+                db_update_trade(trade_id, status="open", filled_price=avg_price,
+                                qty=filled_qty, filled_at=datetime.now().isoformat())
+                await self._notify(
+                    f"✅ {ticker} LONG 선물 시장가 체결\n"
+                    f"체결가: {avg_price} | SL: {sl} | TP3: {tp3}\n"
+                    f"수량: {filled_qty} | 증거금: ~{trade_amount} USDT | {leverage}x"
+                )
+            else:
+                order = exchange.create_limit_buy_order(symbol, qty, entry)
+                order_id = order["id"]
+                logger.info(f"[FUTURES LONG] {symbol} entry order: {order_id} qty={qty} @ {entry}")
+
+                await self._notify(
+                    f"✅ {ticker} LONG 선물 주문 접수\n"
+                    f"진입: {entry} | SL: {sl} | TP3: {tp3}\n"
+                    f"수량: {qty} | 증거금: ~{trade_amount} USDT | {leverage}x"
+                )
+
+                wait_start = time.time()
+                while True:
+                    if time.time() - wait_start > self.entry_timeout:
+                        try:
+                            exchange.cancel_order(order_id, symbol)
+                        except Exception:
+                            pass
+                        logger.info(f"[FUTURES LONG] {symbol} entry TIMEOUT ({self.entry_timeout}s)")
+                        db_update_trade(trade_id, status="timeout", result="timeout",
+                                        closed_at=datetime.now().isoformat())
+                        await self._notify(f"⏰ {ticker} LONG 진입 미체결 ({self.entry_timeout // 60}분). 주문 취소.")
+                        return
+                    o = exchange.fetch_order(order_id, symbol)
+                    if o["status"] == "closed":
+                        filled_qty = o["filled"]
+                        avg_price = o["average"] or entry
+                        logger.info(f"[FUTURES LONG] {symbol} FILLED: {filled_qty} @ {avg_price}")
+                        db_update_trade(trade_id, status="open", filled_price=avg_price,
+                                        qty=filled_qty, filled_at=datetime.now().isoformat())
+                        await self._notify(f"📥 {ticker} 롱 진입 체결: {filled_qty} @ {avg_price}")
+                        break
+                    if o["status"] == "canceled":
+                        logger.info(f"[FUTURES LONG] {symbol} entry CANCELED")
+                        db_update_trade(trade_id, status="cancelled", result="cancelled",
+                                        closed_at=datetime.now().isoformat())
+                        await self._notify(f"❌ {ticker} 진입 주문 취소됨")
+                        return
+                    await asyncio.sleep(5)
+
+            sl_order = self._create_sl_order(exchange, exchange_name, symbol, "LONG", filled_qty, sl, futures=True)
+            sl_order_id = sl_order["id"]
+            tp_order = self._create_tp_order(exchange, exchange_name, symbol, "LONG", filled_qty, tp3, futures=True)
+            tp_order_id = tp_order["id"]
+            logger.info(f"[FUTURES LONG] {symbol} SL: {sl_order_id} @ {sl}, TP3: {tp_order_id} @ {tp3}")
+
+            sl_moved = False
+            while True:
+                try:
+                    ticker_data = exchange.fetch_ticker(symbol)
+                    price = ticker_data["last"]
+
+                    if not sl_moved and price >= tp1:
+                        logger.info(f"[FUTURES LONG] {symbol} TP1 reached ({price}). Moving SL to {avg_price}")
+                        try:
+                            exchange.cancel_order(sl_order_id, symbol)
+                            sl_order = self._create_sl_order(exchange, exchange_name, symbol, "LONG", filled_qty, avg_price, futures=True)
+                            sl_order_id = sl_order["id"]
+                            sl_moved = True
+                            db_update_trade(trade_id, tp1_hit=1, sl_moved=1)
+                            await self._notify(f"🔄 {ticker} TP1 도달! SL → 진입점({avg_price}) 이동")
+                        except Exception as e:
+                            logger.error(f"Failed to move SL: {e}")
+
+                    tp_status = exchange.fetch_order(tp_order_id, symbol)
+                    if tp_status["status"] == "closed":
+                        try:
+                            exchange.cancel_order(sl_order_id, symbol)
+                        except Exception:
+                            pass
+                        pnl = round((tp3 - avg_price) / avg_price * 100, 2)
+                        pnl_usdt = round((tp3 - avg_price) * filled_qty, 2)
+                        self._record_pnl((tp3 - avg_price) * filled_qty)
+                        db_update_trade(trade_id, status="closed", result="tp3_hit",
+                                        exit_price=tp3, pnl_pct=pnl, pnl_usdt=pnl_usdt,
+                                        closed_at=datetime.now().isoformat())
+                        logger.info(f"[FUTURES LONG] {symbol} TP3 HIT! PnL: {pnl}%")
+                        await self._notify(f"📊 {ticker} LONG 거래 완료\n결과: TP3 도달\n수익률: {pnl}%")
+                        return
+
+                    sl_status = exchange.fetch_order(sl_order_id, symbol)
+                    if sl_status["status"] == "closed":
+                        try:
+                            exchange.cancel_order(tp_order_id, symbol)
+                        except Exception:
+                            pass
+                        sl_fill = sl_status["average"] or sl
+                        pnl = round((sl_fill - avg_price) / avg_price * 100, 2)
+                        pnl_usdt = round((sl_fill - avg_price) * filled_qty, 2)
+                        self._record_pnl((sl_fill - avg_price) * filled_qty)
+                        db_update_trade(trade_id, status="closed", result="sl_hit",
+                                        exit_price=sl_fill, pnl_pct=pnl, pnl_usdt=pnl_usdt,
+                                        closed_at=datetime.now().isoformat())
+                        logger.info(f"[FUTURES LONG] {symbol} SL HIT @ {sl_fill}. PnL: {pnl}%")
+                        await self._notify(f"📊 {ticker} LONG 거래 완료\n결과: SL 도달 @ {sl_fill}\n수익률: {pnl}%")
+                        return
+
+                    positions = exchange.fetch_positions([symbol])
+                    active = [p for p in positions if abs(float(p.get("contracts", 0))) > 0]
+                    if not active:
+                        for oid in [sl_order_id, tp_order_id]:
+                            try:
+                                exchange.cancel_order(oid, symbol)
+                            except Exception:
+                                pass
+                        db_update_trade(trade_id, status="closed", result="external",
+                                        closed_at=datetime.now().isoformat())
+                        await self._notify(f"📊 {ticker} LONG 포지션 외부에서 종료됨")
+                        return
+
+                except ccxt.NetworkError as e:
+                    logger.warning(f"Network error: {e}")
+
+                await asyncio.sleep(10)
+
+        except Exception as e:
+            if trade_id:
+                db_update_trade(trade_id, status="error", result=str(e)[:200],
+                                closed_at=datetime.now().isoformat())
+            logger.error(f"[FUTURES LONG] {symbol} error: {e}")
+            await self._notify(f"⚠️ {ticker} LONG 에러: {e}")
+
+    async def _execute_futures_short(self, signal):
+        ticker = signal["ticker"]
+        exchange_name = signal.get("exchange_name", "binance")
+        symbol = self._make_symbol(ticker, futures=True, exchange_name=exchange_name)
+        entry = signal["entry"]
+        tp1, tp3, sl = signal["tp1"], signal["tp3"], signal["sl"]
+        leverage = signal.get("leverage", 1)
+        trade_amount = signal.get("trade_amount", self.trade_amount)
+        channel_name = signal.get("channel_name", "")
+        trade_id = None
+
+        try:
+            if exchange_name == "okx" and not self.config.okx_api_key:
+                await self._notify(f"⚠️ OKX API 키가 설정되지 않았습니다. {ticker} 거래 불가.")
+                return
+            if exchange_name == "binance" and not self.config.binance_api_key:
+                await self._notify(f"⚠️ Binance API 키가 설정되지 않았습니다. {ticker} 거래 불가.")
+                return
+
+            exchange = self._create_exchange(futures=True, exchange_name=exchange_name)
+            market = exchange.market(symbol)
+            notional = trade_amount * leverage
+            qty = round(notional / entry, int(market["precision"]["amount"]))
+
+            trade_id = db_insert_trade(
+                ticker, "SHORT", entry, qty, trade_amount,
+                signal["tp1"], signal["tp2"], signal["tp3"], sl, channel_name,
+            )
+
+            try:
+                exchange.set_leverage(leverage, symbol)
+                exchange.set_margin_mode("isolated", symbol)
+            except Exception as e:
+                logger.warning(f"[FUTURES SHORT] {symbol} set_leverage/margin_mode: {e}")
 
             is_market = signal.get("market_order", False)
 
@@ -411,7 +663,7 @@ class TraderModule:
                 await self._notify(
                     f"✅ {ticker} SHORT 시장가 체결\n"
                     f"체결가: {avg_price} | SL: {sl} | TP3: {tp3}\n"
-                    f"수량: {filled_qty} | 투입: ~{self.trade_amount} USDT | 1x"
+                    f"수량: {filled_qty} | 증거금: ~{trade_amount} USDT | {leverage}x"
                 )
             else:
                 order = exchange.create_limit_sell_order(symbol, qty, entry)
@@ -421,7 +673,7 @@ class TraderModule:
                 await self._notify(
                     f"✅ {ticker} SHORT 주문 접수\n"
                     f"진입: {entry} | SL: {sl} | TP3: {tp3}\n"
-                    f"수량: {qty} | 투입: ~{self.trade_amount} USDT | 1x"
+                    f"수량: {qty} | 증거금: ~{trade_amount} USDT | {leverage}x"
                 )
 
                 wait_start = time.time()
@@ -453,15 +705,9 @@ class TraderModule:
                         return
                     await asyncio.sleep(5)
 
-            sl_order = exchange.create_order(
-                symbol, "stop_market", "buy", filled_qty, None,
-                {"stopPrice": sl, "reduceOnly": True}
-            )
+            sl_order = self._create_sl_order(exchange, exchange_name, symbol, "SHORT", filled_qty, sl)
             sl_order_id = sl_order["id"]
-            tp_order = exchange.create_order(
-                symbol, "take_profit_market", "buy", filled_qty, None,
-                {"stopPrice": tp3, "reduceOnly": True}
-            )
+            tp_order = self._create_tp_order(exchange, exchange_name, symbol, "SHORT", filled_qty, tp3)
             tp_order_id = tp_order["id"]
             logger.info(f"[FUTURES SHORT] {symbol} SL: {sl_order_id} @ {sl}, TP3: {tp_order_id} @ {tp3}")
 
@@ -475,10 +721,7 @@ class TraderModule:
                         logger.info(f"[FUTURES SHORT] {symbol} TP1 reached ({price}). Moving SL to {avg_price}")
                         try:
                             exchange.cancel_order(sl_order_id, symbol)
-                            sl_order = exchange.create_order(
-                                symbol, "stop_market", "buy", filled_qty, None,
-                                {"stopPrice": avg_price, "reduceOnly": True}
-                            )
+                            sl_order = self._create_sl_order(exchange, exchange_name, symbol, "SHORT", filled_qty, avg_price)
                             sl_order_id = sl_order["id"]
                             sl_moved = True
                             db_update_trade(trade_id, tp1_hit=1, sl_moved=1)
@@ -570,14 +813,19 @@ class TraderModule:
                 source_entities.append(entity)
                 name = getattr(entity, "title", ch)
                 compiled, fields = compile_template(fmt["template"])
+                ex_name = fmt.get("exchange", "binance")
+                noise_filter = fmt.get("noise_filter", "")
                 self._channel_templates[entity.id] = {
                     "regex": compiled,
                     "fields": fields,
                     "default_side": fmt.get("default_side", "LONG"),
+                    "trade_amount": float(fmt.get("trade_amount", 0)),
                     "channel_name": name,
+                    "exchange_name": ex_name,
+                    "noise_filter": noise_filter,
                 }
-                channel_names.append(name)
-                logger.info(f"Monitoring (template): {name} ({ch})")
+                channel_names.append(f"{name}[{ex_name.upper()}]")
+                logger.info(f"Monitoring (template): {name} ({ch}) [exchange={ex_name}]")
             except Exception as e:
                 logger.error(f"Cannot resolve channel '{ch}': {e}")
 
@@ -609,11 +857,23 @@ class TraderModule:
             chat_id = event.chat_id
             template_info = trader._channel_templates.get(chat_id)
 
+            # Noise filter: silently skip known non-signal messages
+            if template_info and template_info.get("noise_filter"):
+                keywords = [k.strip() for k in template_info["noise_filter"].split(",") if k.strip()]
+                if any(kw in text for kw in keywords):
+                    logger.debug(f"Noise filtered: {text[:60]}...")
+                    return
+
             if template_info:
                 signal = parse_with_template(
                     text, template_info["regex"],
                     template_info["fields"], template_info["default_side"],
                 )
+                if signal:
+                    if template_info.get("trade_amount", 0) > 0:
+                        signal["trade_amount"] = template_info["trade_amount"]
+                    signal["exchange_name"] = template_info.get("exchange_name", "binance")
+                    signal["channel_name"] = template_info.get("channel_name", "")
             else:
                 signal = parse_signal(text)
 
@@ -626,12 +886,13 @@ class TraderModule:
                 return
 
             ticker = signal["ticker"]
+            sig_exchange = signal.get("exchange_name", "binance")
 
             # Fetch market price if entry is missing
             if "entry" not in signal:
                 signal["market_order"] = True
                 try:
-                    price = await trader._fetch_current_price(ticker)
+                    price = await trader._fetch_current_price(ticker, sig_exchange)
                     signal["entry"] = price
                     logger.info(f"No entry in signal, using market price: {price}")
                 except Exception as e:
@@ -669,8 +930,12 @@ class TraderModule:
 
             async def run_trade():
                 try:
+                    leverage = signal.get("leverage", 1)
                     if side == "LONG":
-                        await trader._execute_spot_long(signal)
+                        if leverage > 1:
+                            await trader._execute_futures_long(signal)
+                        else:
+                            await trader._execute_spot_long(signal)
                     else:
                         await trader._execute_futures_short(signal)
                 finally:
@@ -699,6 +964,7 @@ class TraderModule:
         signal = None
         used_template = None
 
+        matched_info = None
         if channel_id:
             # Find template for specified channel
             for chat_id, info in self._channel_templates.items():
@@ -706,6 +972,7 @@ class TraderModule:
                     signal = parse_with_template(text, info["regex"], info["fields"], info["default_side"])
                     if signal:
                         used_template = info["channel_name"]
+                        matched_info = info
                         break
 
         # Try all registered templates
@@ -714,6 +981,7 @@ class TraderModule:
                 signal = parse_with_template(text, info["regex"], info["fields"], info["default_side"])
                 if signal:
                     used_template = info["channel_name"]
+                    matched_info = info
                     break
 
         # Fallback to default parser
@@ -725,13 +993,21 @@ class TraderModule:
         if not signal:
             return {"error": "No template matched this message"}
 
+        # Propagate exchange, trade_amount, and channel_name from matched template
+        if matched_info:
+            signal["exchange_name"] = matched_info.get("exchange_name", "binance")
+            signal["channel_name"] = matched_info.get("channel_name", used_template or "")
+            if matched_info.get("trade_amount", 0) > 0:
+                signal["trade_amount"] = matched_info["trade_amount"]
+
         ticker = signal["ticker"]
+        sig_exchange = signal.get("exchange_name", "binance")
 
         # Fetch market price if entry is missing
         if "entry" not in signal:
             signal["market_order"] = True
             try:
-                price = await self._fetch_current_price(ticker)
+                price = await self._fetch_current_price(ticker, sig_exchange)
                 signal["entry"] = price
             except Exception as e:
                 return {"error": f"Failed to fetch price for {ticker}: {e}"}
@@ -760,8 +1036,12 @@ class TraderModule:
 
         async def run_trade():
             try:
+                leverage = signal.get("leverage", 1)
                 if side == "LONG":
-                    await self._execute_spot_long(signal)
+                    if leverage > 1:
+                        await self._execute_futures_long(signal)
+                    else:
+                        await self._execute_spot_long(signal)
                 else:
                     await self._execute_futures_short(signal)
             finally:
@@ -779,6 +1059,7 @@ class TraderModule:
                 "tp2": signal.get("tp2"),
                 "tp3": signal.get("tp3"),
                 "sl": signal.get("sl"),
+                "leverage": signal.get("leverage", 1),
                 "market_order": signal.get("market_order", False),
             },
             "template_used": used_template,
@@ -786,14 +1067,20 @@ class TraderModule:
 
     # ── Public API for dashboard ──────────────────────────
 
-    def get_stats(self):
-        stats = db_get_stats()
+    def get_stats(self, channel=None):
+        stats = db_get_stats(channel=channel)
         stats["active_trades"] = list(self.active_trades.keys())
         stats["daily_realized_pnl"] = round(self.daily_realized_pnl, 2)
         return stats
 
-    def get_trades(self, limit=100, status=None):
-        return db_get_trades(limit=limit, status=status)
+    def get_performance_stats(self, period='lifetime', channel=None):
+        return db_get_performance_stats(period=period, channel=channel)
+
+    def get_performance_table(self, period='lifetime'):
+        return db_get_performance_table(period=period)
+
+    def get_trades(self, limit=100, status=None, channel=None):
+        return db_get_trades(limit=limit, status=status, channel=channel)
 
     def get_settings(self):
         return {
