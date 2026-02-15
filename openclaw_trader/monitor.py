@@ -141,6 +141,8 @@ def show_futures_balance(exchange):
 
 def show_open_orders(exchange, symbol=None):
     print(f"\n=== OPEN ORDERS {f'({symbol})' if symbol else ''} ===")
+    if not symbol:
+        exchange.options["warnOnFetchOpenOrdersWithoutSymbol"] = False
     orders = exchange.fetch_open_orders(symbol)
     if not orders:
         print("  No open orders.")

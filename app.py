@@ -17,9 +17,11 @@ from telethon import TelegramClient
 from core.config import AppConfig, load_config
 from core.database import init_db
 from core.auth import TelegramAuthFlow
-from modules.forwarder import ForwarderModule
-from modules.trader import TraderModule
+from forwarder import ForwarderModule
+from signal_trader import TraderModule
+from openclaw_trader import OpenClawBridge
 from dashboard.server import DashboardServer
+from bot_controller import BotController
 
 
 def get_data_dir() -> Path:
@@ -61,7 +63,9 @@ class Application:
         self.auth_flow = None
         self.forwarder = None
         self.trader = None
+        self.openclaw = OpenClawBridge()
         self.dashboard = DashboardServer(self)
+        self.bot_controller = None
         self._shutdown_event = asyncio.Event()
 
     async def run(self):
@@ -120,6 +124,10 @@ class Application:
         except Exception as e:
             logger.error(f"Trader setup failed: {e}")
 
+        # Setup bot controller (remote control via Telegram commands)
+        self.bot_controller = BotController(self, self.config)
+        await self.bot_controller.start()
+
         logger.info("All modules ready. Listening for messages...")
 
         # Keep running via Telethon client
@@ -149,6 +157,9 @@ class Application:
         logger = logging.getLogger("app")
 
         # Clean up modules
+        if self.bot_controller:
+            await self.bot_controller.shutdown()
+            self.bot_controller = None
         if self.trader:
             await self.trader.shutdown()
             self.trader = None
@@ -173,6 +184,9 @@ class Application:
         """Graceful shutdown."""
         logger = logging.getLogger("app")
         logger.info("Shutting down...")
+
+        if self.bot_controller:
+            await self.bot_controller.shutdown()
 
         if self.trader:
             await self.trader.shutdown()

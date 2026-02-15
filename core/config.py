@@ -31,9 +31,11 @@ class AppConfig:
     my_chat_id: int = 0
     trade_amount: float = 100.0
     sell_blocked: set = field(default_factory=set)
+    trade_blocked: set = field(default_factory=set)
     max_concurrent: int = 3
     daily_loss_limit: float = 500.0
     entry_timeout: int = 600
+    max_leverage: int = 20
 
     # App
     dashboard_port: int = 8080
@@ -63,6 +65,7 @@ def load_config(data_dir: Path) -> AppConfig:
 
     source_channels_raw = os.getenv("SOURCE_CHANNELS", "")
     sell_blocked_raw = os.getenv("SELL_BLOCKED", "")
+    trade_blocked_raw = os.getenv("TRADE_BLOCKED", "")
 
     return AppConfig(
         api_id=int(os.getenv("API_ID", "0")),
@@ -81,9 +84,11 @@ def load_config(data_dir: Path) -> AppConfig:
         my_chat_id=int(os.getenv("MY_CHAT_ID", "0")),
         trade_amount=float(os.getenv("TRADE_AMOUNT", "100")),
         sell_blocked={s.strip().upper() for s in sell_blocked_raw.split(",") if s.strip()},
+        trade_blocked={s.strip().upper() for s in trade_blocked_raw.split(",") if s.strip()},
         max_concurrent=int(os.getenv("MAX_CONCURRENT", "3")),
         daily_loss_limit=float(os.getenv("DAILY_LOSS_LIMIT", "500")),
         entry_timeout=int(os.getenv("ENTRY_TIMEOUT", "600")),
+        max_leverage=int(os.getenv("MAX_LEVERAGE", "20")),
         dashboard_port=int(os.getenv("DASHBOARD_PORT", "8080")),
     )
 

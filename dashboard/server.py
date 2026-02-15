@@ -11,7 +11,8 @@ from core.database import (
     db_update_channel_format, db_delete_channel_format,
     db_get_trade_channels,
 )
-from modules.trader import test_template
+from signal_trader.parser import test_template
+from signal_trader.exchange_sync import sync_exchange_trades
 
 logger = logging.getLogger("dashboard")
 
@@ -52,6 +53,7 @@ class DashboardServer:
         app.router.add_post("/api/trading/simulate", self._trading_simulate)
         app.router.add_get("/api/trading/trade-channels", self._trading_trade_channels)
         app.router.add_get("/api/trading/performance", self._trading_performance)
+        app.router.add_post("/api/trading/sync", self._trading_sync)
 
         # Channel format routes
         app.router.add_get("/api/trading/channels", self._channels_list)
@@ -59,6 +61,11 @@ class DashboardServer:
         app.router.add_put("/api/trading/channels/{id}", self._channels_update)
         app.router.add_delete("/api/trading/channels/{id}", self._channels_delete)
         app.router.add_post("/api/trading/channels/test", self._channels_test)
+
+        # OpenClaw routes
+        app.router.add_get("/api/openclaw/status", self._openclaw_status)
+        app.router.add_get("/api/openclaw/positions", self._openclaw_positions)
+        app.router.add_get("/api/openclaw/pnl", self._openclaw_pnl)
 
         # App routes
         app.router.add_post("/api/shutdown", self._shutdown)
@@ -272,6 +279,18 @@ class DashboardServer:
             return web.json_response(result, status=400)
         return web.json_response(result)
 
+    async def _trading_sync(self, request):
+        """Manually trigger exchange trade sync from dashboard."""
+        config = self.app_instance.config
+        if not config.binance_api_key and not config.okx_api_key:
+            return web.json_response({"error": "No exchange API keys configured"}, status=400)
+        try:
+            synced = await sync_exchange_trades(config, force=True)
+            return web.json_response({"ok": True, "synced": synced or 0})
+        except Exception as e:
+            logger.error(f"Manual sync failed: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
     # ── Channel Format API ─────────────────────────────
 
     async def _channels_list(self, request):
@@ -376,6 +395,29 @@ class DashboardServer:
 
         result = test_template(template, sample, default_side)
         return web.json_response(result)
+
+    # ── OpenClaw API ─────────────────────────────────────
+
+    async def _openclaw_status(self, request):
+        oc = self.app_instance.openclaw
+        if not oc:
+            return web.json_response({"enabled": False})
+        return web.json_response(oc.get_status())
+
+    async def _openclaw_positions(self, request):
+        oc = self.app_instance.openclaw
+        if not oc:
+            return web.json_response({"positions": []})
+        active_only = request.query.get("active", "true").lower() == "true"
+        positions = oc.get_positions(active_only=active_only)
+        return web.json_response({"positions": positions})
+
+    async def _openclaw_pnl(self, request):
+        oc = self.app_instance.openclaw
+        if not oc:
+            return web.json_response({})
+        daily = oc.get_daily_pnl()
+        return web.json_response(daily or {})
 
     # ── App API ───────────────────────────────────────────
 

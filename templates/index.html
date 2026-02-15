@@ -438,6 +438,7 @@
         .status-badge-trade.cancelled { background: #F3F4F6; color: #6B7280; }
         .status-badge-trade.error { background: #FEE2E2; color: #991B1B; }
         .status-badge-trade.external { background: #E0E7FF; color: #3730A3; }
+        .status-badge-trade.exchange_sync { background: #DBEAFE; color: #1E40AF; }
 
         .pnl-positive { color: var(--success); font-weight: 600; }
         .pnl-negative { color: var(--error); font-weight: 600; }
@@ -962,6 +963,7 @@
             <div class="section-header">
                 <div class="section-title">Trade History</div>
                 <div style="display:flex;align-items:center;gap:12px;">
+                    <button class="btn-outline" id="btnSync" onclick="syncExchangeTrades()" style="font-size:11px;padding:6px 12px;">Sync Exchange</button>
                     <select id="channelFilter" onchange="setChannelFilter(this.value)" style="
                         padding:6px 10px;font-size:12px;font-weight:600;font-family:var(--font-body);
                         border:1px solid var(--divider);background:var(--white);color:var(--text-primary);
@@ -1131,6 +1133,11 @@
                         <input type="number" id="setEntryTimeout" step="10" min="10">
                         <div class="hint">Seconds (600 = 10 min)</div>
                     </div>
+                    <div class="setting-field">
+                        <label for="setMaxLeverage">Max Leverage</label>
+                        <input type="number" id="setMaxLeverage" step="1" min="1" max="125">
+                        <div class="hint">Signal leverage cap</div>
+                    </div>
                 </div>
                 <div class="settings-actions">
                     <button class="btn-save" id="btnSave" onclick="saveSettings()">Save</button>
@@ -1184,7 +1191,7 @@
     }
 
     function resultLabel(result) {
-        const map = { 'tp3_hit': 'TP3 HIT', 'sl_hit': 'SL HIT', 'external': 'External', 'timeout': 'Timeout', 'cancelled': 'Cancelled', 'error': 'Error' };
+        const map = { 'tp3_hit': 'TP3 HIT', 'sl_hit': 'SL HIT', 'external': 'External', 'timeout': 'Timeout', 'cancelled': 'Cancelled', 'error': 'Error', 'exchange_sync': 'Exchange' };
         return map[result] || result || '-';
     }
 
@@ -1491,6 +1498,7 @@
             document.getElementById('setMaxConcurrent').value = data.MAX_CONCURRENT;
             document.getElementById('setDailyLoss').value = data.DAILY_LOSS_LIMIT;
             document.getElementById('setEntryTimeout').value = data.ENTRY_TIMEOUT;
+            document.getElementById('setMaxLeverage').value = data.MAX_LEVERAGE;
         } catch (e) {}
     }
 
@@ -1505,6 +1513,7 @@
             MAX_CONCURRENT: parseInt(document.getElementById('setMaxConcurrent').value),
             DAILY_LOSS_LIMIT: parseFloat(document.getElementById('setDailyLoss').value),
             ENTRY_TIMEOUT: parseInt(document.getElementById('setEntryTimeout').value),
+            MAX_LEVERAGE: parseInt(document.getElementById('setMaxLeverage').value),
         };
 
         try {
@@ -1522,6 +1531,7 @@
                 document.getElementById('setMaxConcurrent').value = data.MAX_CONCURRENT;
                 document.getElementById('setDailyLoss').value = data.DAILY_LOSS_LIMIT;
                 document.getElementById('setEntryTimeout').value = data.ENTRY_TIMEOUT;
+                document.getElementById('setMaxLeverage').value = data.MAX_LEVERAGE;
                 showSaveMsg('Saved', false);
             }
         } catch (e) {
@@ -1613,6 +1623,31 @@
         } catch (e) {
             msgEl.textContent = '';
             resultEl.innerHTML = '<div class="test-result fail" style="margin-top:12px;">Network error</div>';
+        }
+    }
+
+    // ── Exchange Sync ────────────────────────────────
+
+    async function syncExchangeTrades() {
+        const btn = document.getElementById('btnSync');
+        btn.disabled = true;
+        btn.textContent = 'Syncing...';
+
+        try {
+            const res = await fetch('/api/trading/sync', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) {
+                btn.textContent = data.error || 'Failed';
+                setTimeout(() => { btn.textContent = 'Sync Exchange'; btn.disabled = false; }, 3000);
+            } else {
+                const count = data.synced || 0;
+                btn.textContent = count > 0 ? `Synced ${count}` : 'Up to date';
+                if (count > 0) refresh();
+                setTimeout(() => { btn.textContent = 'Sync Exchange'; btn.disabled = false; }, 3000);
+            }
+        } catch (e) {
+            btn.textContent = 'Network error';
+            setTimeout(() => { btn.textContent = 'Sync Exchange'; btn.disabled = false; }, 3000);
         }
     }
 

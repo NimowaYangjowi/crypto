@@ -9,7 +9,7 @@ DB_PATH: Path = None  # Set by init_db()
 TRADE_COLUMNS = {
     "status", "filled_price", "qty", "exit_price", "result",
     "pnl_pct", "pnl_usdt", "tp1_hit", "sl_moved", "filled_at", "closed_at",
-    "channel_name",
+    "channel_name", "exchange_order_id", "source", "exchange_name",
 }
 
 
@@ -83,6 +83,28 @@ def init_db(data_dir: Path):
             conn.execute("ALTER TABLE trades ADD COLUMN channel_name TEXT DEFAULT ''")
         except Exception:
             pass
+        # Migration: add exchange_order_id to trades (for dedup with exchange)
+        try:
+            conn.execute("ALTER TABLE trades ADD COLUMN exchange_order_id TEXT DEFAULT ''")
+        except Exception:
+            pass
+        # Migration: add source to trades ('bot' or 'exchange')
+        try:
+            conn.execute("ALTER TABLE trades ADD COLUMN source TEXT DEFAULT 'bot'")
+        except Exception:
+            pass
+        # Migration: add exchange_name to trades ('binance' or 'okx')
+        try:
+            conn.execute("ALTER TABLE trades ADD COLUMN exchange_name TEXT DEFAULT ''")
+        except Exception:
+            pass
+        # Sync state for exchange trade sync
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS forwarded_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -399,3 +421,48 @@ def db_delete_channel_format(fmt_id):
 def db_get_forwarded_count():
     with sqlite3.connect(DB_PATH) as conn:
         return conn.execute("SELECT COUNT(*) FROM forwarded_messages").fetchone()[0]
+
+
+# ── Sync State ─────────────────────────────────────────
+
+def db_get_sync_state(key):
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute("SELECT value FROM sync_state WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+
+def db_set_sync_state(key, value):
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("INSERT OR REPLACE INTO sync_state (key, value) VALUES (?, ?)", (key, str(value)))
+
+
+# ── Exchange Trade Sync ────────────────────────────────
+
+def db_get_known_exchange_order_ids(exchange_name):
+    """Return set of exchange_order_ids already in DB for a given exchange."""
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            "SELECT exchange_order_id FROM trades WHERE exchange_name = ? AND exchange_order_id != ''",
+            (exchange_name,),
+        ).fetchall()
+        return {r[0] for r in rows}
+
+
+def db_insert_synced_trade(ticker, side, status, filled_price, qty, amount_usdt,
+                           exit_price, pnl_pct, pnl_usdt, exchange_order_id,
+                           exchange_name, created_at, closed_at=None, result=None):
+    """Insert a trade discovered from exchange sync (source='exchange')."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cur = conn.execute(
+            """INSERT INTO trades
+               (ticker, side, status, entry_price, filled_price, qty, amount_usdt,
+                exit_price, result, pnl_pct, pnl_usdt,
+                created_at, closed_at,
+                channel_name, exchange_order_id, source, exchange_name)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, 'exchange', ?)""",
+            (ticker, side, status, filled_price, filled_price, qty, amount_usdt,
+             exit_price, result, pnl_pct, pnl_usdt,
+             created_at, closed_at,
+             exchange_order_id, exchange_name),
+        )
+        return cur.lastrowid

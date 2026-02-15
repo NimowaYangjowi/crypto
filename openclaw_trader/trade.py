@@ -24,7 +24,8 @@ import ccxt
 from db import TradeDB
 
 ENTRY_TIMEOUT = 1800  # 30 minutes max wait for entry fill
-SELL_BLOCKED = {"BTC", "XRP"}
+SELL_BLOCKED = {"XRP"}       # SHORT only blocked
+TRADE_BLOCKED = {"BTC"}      # All trades blocked (LONG + SHORT)
 
 
 def get_exchange(futures=False):
@@ -284,7 +285,12 @@ def main():
     base = symbol.replace("USDT", "")
     ccxt_symbol = f"{base}/USDT"
 
-    # Sell-blocked check
+    # Trade-blocked check (all directions)
+    if base in TRADE_BLOCKED:
+        print(f"BLOCKED: {base} is trade-blocked (all directions).")
+        sys.exit(1)
+
+    # Sell-blocked check (SHORT only)
     if base in SELL_BLOCKED and args.side == "SHORT":
         print(f"BLOCKED: {base} SHORT prohibited.")
         sys.exit(1)
