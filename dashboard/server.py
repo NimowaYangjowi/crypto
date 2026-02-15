@@ -9,7 +9,7 @@ from aiohttp import web
 from core.database import (
     db_get_channel_formats, db_add_channel_format,
     db_update_channel_format, db_delete_channel_format,
-    db_get_trade_channels,
+    db_get_trade_channels, db_delete_trade,
 )
 from signal_trader.parser import test_template
 from signal_trader.exchange_sync import sync_exchange_trades
@@ -54,6 +54,7 @@ class DashboardServer:
         app.router.add_get("/api/trading/trade-channels", self._trading_trade_channels)
         app.router.add_get("/api/trading/performance", self._trading_performance)
         app.router.add_post("/api/trading/sync", self._trading_sync)
+        app.router.add_delete("/api/trading/trades/{id}", self._trading_delete_trade)
 
         # Channel format routes
         app.router.add_get("/api/trading/channels", self._channels_list)
@@ -290,6 +291,12 @@ class DashboardServer:
         except Exception as e:
             logger.error(f"Manual sync failed: {e}")
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _trading_delete_trade(self, request):
+        """Delete a synced trade record."""
+        trade_id = int(request.match_info["id"])
+        db_delete_trade(trade_id, source_only="exchange")
+        return web.json_response({"ok": True})
 
     # ── Channel Format API ─────────────────────────────
 

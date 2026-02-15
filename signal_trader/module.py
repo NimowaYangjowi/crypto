@@ -48,21 +48,32 @@ class TraderModule:
     def apply_settings_from_db(self):
         saved = db_load_settings()
         if not saved:
-            return
-        if "TRADE_AMOUNT" in saved:
-            self.trade_amount = float(saved["TRADE_AMOUNT"])
-        if "SELL_BLOCKED" in saved:
-            self.sell_blocked = {s.strip().upper() for s in saved["SELL_BLOCKED"].split(",") if s.strip()}
-        if "TRADE_BLOCKED" in saved:
-            self.trade_blocked = {s.strip().upper() for s in saved["TRADE_BLOCKED"].split(",") if s.strip()}
-        if "MAX_CONCURRENT" in saved:
-            self.max_concurrent = int(saved["MAX_CONCURRENT"])
-        if "DAILY_LOSS_LIMIT" in saved:
-            self.daily_loss_limit = float(saved["DAILY_LOSS_LIMIT"])
-        if "ENTRY_TIMEOUT" in saved:
-            self.entry_timeout = int(saved["ENTRY_TIMEOUT"])
-        if "MAX_LEVERAGE" in saved:
-            self.max_leverage = int(saved["MAX_LEVERAGE"])
+            # First run: seed database with config defaults
+            db_save_settings({
+                "TRADE_AMOUNT": str(self.trade_amount),
+                "SELL_BLOCKED": ",".join(sorted(self.sell_blocked)),
+                "TRADE_BLOCKED": ",".join(sorted(self.trade_blocked)),
+                "MAX_CONCURRENT": str(self.max_concurrent),
+                "DAILY_LOSS_LIMIT": str(self.daily_loss_limit),
+                "ENTRY_TIMEOUT": str(self.entry_timeout),
+                "MAX_LEVERAGE": str(self.max_leverage),
+            })
+            logger.info("Settings seeded to database from config defaults")
+        else:
+            if "TRADE_AMOUNT" in saved:
+                self.trade_amount = float(saved["TRADE_AMOUNT"])
+            if "SELL_BLOCKED" in saved:
+                self.sell_blocked = {s.strip().upper() for s in saved["SELL_BLOCKED"].split(",") if s.strip()}
+            if "TRADE_BLOCKED" in saved:
+                self.trade_blocked = {s.strip().upper() for s in saved["TRADE_BLOCKED"].split(",") if s.strip()}
+            if "MAX_CONCURRENT" in saved:
+                self.max_concurrent = int(saved["MAX_CONCURRENT"])
+            if "DAILY_LOSS_LIMIT" in saved:
+                self.daily_loss_limit = float(saved["DAILY_LOSS_LIMIT"])
+            if "ENTRY_TIMEOUT" in saved:
+                self.entry_timeout = int(saved["ENTRY_TIMEOUT"])
+            if "MAX_LEVERAGE" in saved:
+                self.max_leverage = int(saved["MAX_LEVERAGE"])
         logger.info(f"Settings loaded: TRADE_AMOUNT={self.trade_amount}, SELL_BLOCKED={self.sell_blocked}, "
                      f"TRADE_BLOCKED={self.trade_blocked}, MAX_CONCURRENT={self.max_concurrent}, "
                      f"DAILY_LOSS_LIMIT={self.daily_loss_limit}, ENTRY_TIMEOUT={self.entry_timeout}, "

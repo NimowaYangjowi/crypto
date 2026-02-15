@@ -10,6 +10,9 @@ TRADE_COLUMNS = {
     "status", "filled_price", "qty", "exit_price", "result",
     "pnl_pct", "pnl_usdt", "tp1_hit", "sl_moved", "filled_at", "closed_at",
     "channel_name", "exchange_order_id", "source", "exchange_name",
+    # OpenClaw integration columns
+    "tp4", "sl_order_id", "tp_order_id", "market_type", "leverage",
+    "remaining_qty", "sl_initial",
 }
 
 
@@ -98,6 +101,20 @@ def init_db(data_dir: Path):
             conn.execute("ALTER TABLE trades ADD COLUMN exchange_name TEXT DEFAULT ''")
         except Exception:
             pass
+        # Migration: OpenClaw integration columns
+        for col_sql in [
+            "ALTER TABLE trades ADD COLUMN tp4 REAL",
+            "ALTER TABLE trades ADD COLUMN sl_order_id TEXT DEFAULT ''",
+            "ALTER TABLE trades ADD COLUMN tp_order_id TEXT DEFAULT ''",
+            "ALTER TABLE trades ADD COLUMN market_type TEXT DEFAULT 'spot'",
+            "ALTER TABLE trades ADD COLUMN leverage INTEGER DEFAULT 1",
+            "ALTER TABLE trades ADD COLUMN remaining_qty REAL",
+            "ALTER TABLE trades ADD COLUMN sl_initial REAL",
+        ]:
+            try:
+                conn.execute(col_sql)
+            except Exception:
+                pass
         # Sync state for exchange trade sync
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sync_state (
@@ -438,6 +455,15 @@ def db_set_sync_state(key, value):
 
 # ── Exchange Trade Sync ────────────────────────────────
 
+def db_delete_trade(trade_id, source_only="exchange"):
+    """Delete a trade by ID. If source_only is set, only deletes if the trade has that source."""
+    with sqlite3.connect(DB_PATH) as conn:
+        if source_only:
+            conn.execute("DELETE FROM trades WHERE id = ? AND source = ?", (trade_id, source_only))
+        else:
+            conn.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
+
+
 def db_get_known_exchange_order_ids(exchange_name):
     """Return set of exchange_order_ids already in DB for a given exchange."""
     with sqlite3.connect(DB_PATH) as conn:
@@ -446,6 +472,64 @@ def db_get_known_exchange_order_ids(exchange_name):
             (exchange_name,),
         ).fetchall()
         return {r[0] for r in rows}
+
+
+# ── OpenClaw Trade Functions ──────────────────────────
+
+def db_insert_openclaw_trade(ticker, side, entry_price, qty, amount_usdt,
+                              tp1, tp2, tp3, tp4, sl, sl_initial,
+                              market_type='spot', leverage=1,
+                              exchange_name='binance', signal_text=None):
+    """Insert a trade from openclaw_trader (source='openclaw')."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cur = conn.execute(
+            """INSERT INTO trades
+               (ticker, side, status, entry_price, qty, amount_usdt,
+                tp1, tp2, tp3, tp4, sl, sl_initial,
+                market_type, leverage, remaining_qty,
+                source, exchange_name, channel_name)
+               VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'openclaw', ?, '')""",
+            (ticker, side, entry_price, qty, amount_usdt,
+             tp1, tp2, tp3, tp4, sl, sl_initial,
+             market_type, leverage, qty,
+             exchange_name),
+        )
+        return cur.lastrowid
+
+
+def db_get_active_openclaw_trades():
+    """Get all active/pending trades with source='openclaw'."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE source='openclaw' AND status IN ('pending', 'open') ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def db_get_active_trades_by_symbol(ticker, source=None):
+    """Get active trades for a specific ticker, optionally filtered by source."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        if source:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE ticker=? AND source=? AND status IN ('pending', 'open')",
+                (ticker, source),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM trades WHERE ticker=? AND status IN ('pending', 'open')",
+                (ticker,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def db_get_trade(trade_id):
+    """Get a single trade by ID."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM trades WHERE id=?", (trade_id,)).fetchone()
+        return dict(row) if row else None
 
 
 def db_insert_synced_trade(ticker, side, status, filled_price, qty, amount_usdt,

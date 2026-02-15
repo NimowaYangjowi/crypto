@@ -440,6 +440,20 @@
         .status-badge-trade.external { background: #E0E7FF; color: #3730A3; }
         .status-badge-trade.exchange_sync { background: #DBEAFE; color: #1E40AF; }
 
+        .sync-flag {
+            display: inline-block;
+            font-size: 9px; font-weight: 700; text-transform: uppercase;
+            padding: 2px 6px; border-radius: 4px;
+            background: #DBEAFE; color: #1E40AF;
+        }
+        tr.synced-row { background: #F8FAFF; }
+        .btn-delete-trade {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-tertiary); font-size: 16px; line-height: 1;
+            padding: 2px 6px; border-radius: 4px; transition: all 0.15s;
+        }
+        .btn-delete-trade:hover { background: #FEE2E2; color: #DC2626; }
+
         .pnl-positive { color: var(--success); font-weight: 600; }
         .pnl-negative { color: var(--error); font-weight: 600; }
         .pnl-zero { color: var(--text-tertiary); }
@@ -1009,11 +1023,11 @@
                     <thead>
                         <tr>
                             <th>Time</th><th>Channel</th><th>Pair</th><th>Side</th><th>Entry</th><th>Filled</th>
-                            <th>Exit</th><th>Qty</th><th>PnL %</th><th>PnL USDT</th><th>TP1</th><th>Result</th>
+                            <th>Exit</th><th>Qty</th><th>PnL %</th><th>PnL USDT</th><th>TP1</th><th>Result</th><th></th>
                         </tr>
                     </thead>
                     <tbody id="tradeBody">
-                        <tr><td colspan="12"><div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Loading trades...</div></td></tr>
+                        <tr><td colspan="13"><div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>Loading trades...</div></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -1115,8 +1129,13 @@
                     </div>
                     <div class="setting-field">
                         <label for="setSellBlocked">Sell Blocked</label>
-                        <input type="text" id="setSellBlocked" placeholder="BTC,XRP">
-                        <div class="hint">Comma-separated tickers</div>
+                        <input type="text" id="setSellBlocked" placeholder="XRP,SOL">
+                        <div class="hint">SHORT only blocked</div>
+                    </div>
+                    <div class="setting-field">
+                        <label for="setTradeBlocked">Trade Blocked</label>
+                        <input type="text" id="setTradeBlocked" placeholder="BTC,ETH">
+                        <div class="hint">LONG+SHORT blocked</div>
                     </div>
                     <div class="setting-field">
                         <label for="setMaxConcurrent">Max Concurrent</label>
@@ -1464,13 +1483,20 @@
     function renderTrades(trades) {
         const body = document.getElementById('tradeBody');
         if (!trades.length) {
-            body.innerHTML = `<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>No trades found</div></td></tr>`;
+            body.innerHTML = `<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">&middot;&middot;&middot;</div>No trades found</div></td></tr>`;
             return;
         }
-        body.innerHTML = trades.map(t => `
-            <tr>
+        body.innerHTML = trades.map(t => {
+            const isSynced = t.source === 'exchange';
+            const channelLabel = isSynced
+                ? `<span class="sync-flag" title="Synced from ${escapeHtml(t.exchange_name || 'exchange')}">Synced</span>`
+                : escapeHtml(t.channel_name || '-');
+            const deleteBtn = isSynced
+                ? `<button class="btn-delete-trade" onclick="deleteTrade(${t.id})" title="Remove">&times;</button>`
+                : '';
+            return `<tr class="${isSynced ? 'synced-row' : ''}">
                 <td>${formatTime(t.created_at)}</td>
-                <td style="font-size:11px;color:var(--text-secondary);max-width:100px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(t.channel_name || '')}">${escapeHtml(t.channel_name || '-')}</td>
+                <td style="font-size:11px;color:var(--text-secondary);max-width:100px;overflow:hidden;text-overflow:ellipsis;">${channelLabel}</td>
                 <td><strong>${escapeHtml(t.ticker)}/USDT</strong></td>
                 <td><span class="side-tag ${t.side.toLowerCase()}">${t.side}</span></td>
                 <td>${formatPrice(t.entry_price)}</td>
@@ -1485,8 +1511,9 @@
                     t.status === 'pending' ? 'PENDING' :
                     resultLabel(t.result)
                 }</span></td>
-            </tr>
-        `).join('');
+                <td>${deleteBtn}</td>
+            </tr>`;
+        }).join('');
     }
 
     // ── Settings ────────────────────────────────────
@@ -1495,6 +1522,7 @@
             const data = await fetch('/api/trading/settings').then(r => r.json());
             document.getElementById('setTradeAmount').value = data.TRADE_AMOUNT;
             document.getElementById('setSellBlocked').value = data.SELL_BLOCKED;
+            document.getElementById('setTradeBlocked').value = data.TRADE_BLOCKED;
             document.getElementById('setMaxConcurrent').value = data.MAX_CONCURRENT;
             document.getElementById('setDailyLoss').value = data.DAILY_LOSS_LIMIT;
             document.getElementById('setEntryTimeout').value = data.ENTRY_TIMEOUT;
@@ -1510,6 +1538,7 @@
         const payload = {
             TRADE_AMOUNT: parseFloat(document.getElementById('setTradeAmount').value),
             SELL_BLOCKED: document.getElementById('setSellBlocked').value.trim(),
+            TRADE_BLOCKED: document.getElementById('setTradeBlocked').value.trim(),
             MAX_CONCURRENT: parseInt(document.getElementById('setMaxConcurrent').value),
             DAILY_LOSS_LIMIT: parseFloat(document.getElementById('setDailyLoss').value),
             ENTRY_TIMEOUT: parseInt(document.getElementById('setEntryTimeout').value),
@@ -1528,6 +1557,7 @@
             } else {
                 document.getElementById('setTradeAmount').value = data.TRADE_AMOUNT;
                 document.getElementById('setSellBlocked').value = data.SELL_BLOCKED;
+                document.getElementById('setTradeBlocked').value = data.TRADE_BLOCKED;
                 document.getElementById('setMaxConcurrent').value = data.MAX_CONCURRENT;
                 document.getElementById('setDailyLoss').value = data.DAILY_LOSS_LIMIT;
                 document.getElementById('setEntryTimeout').value = data.ENTRY_TIMEOUT;
@@ -1649,6 +1679,14 @@
             btn.textContent = 'Network error';
             setTimeout(() => { btn.textContent = 'Sync Exchange'; btn.disabled = false; }, 3000);
         }
+    }
+
+    async function deleteTrade(id) {
+        if (!confirm('Remove this synced trade record?')) return;
+        try {
+            const res = await fetch('/api/trading/trades/' + id, { method: 'DELETE' });
+            if (res.ok) refresh();
+        } catch (e) {}
     }
 
     // ── Channel Management ──────────────────────────
